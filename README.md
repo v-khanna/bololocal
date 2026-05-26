@@ -13,3 +13,6 @@ xcodegen generate                  # regenerate HearIt.xcodeproj from project.ym
 xcodebuild -scheme HearIt build    # build
 xcodebuild -scheme HearIt test     # run tests
 ```
+
+> **Note:** Builds require `DEVELOPMENT_TEAM` to be filled in `project.yml` (under `settings.base`).
+> For unsigned local builds, pass `CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO` to xcodebuild.

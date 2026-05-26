@@ -1,0 +1,21 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Generated project — project.yml is the source of truth
+*.xcodeproj/
+
+# SPM
+.swiftpm/
+Package.resolved
+
+# Notarization artifacts
+*.dmg
+*.zip
+notarization.log
+
+# macOS
+.DS_Store

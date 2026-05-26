@@ -1,0 +1,52 @@
+name: HearIt
+options:
+  bundleIdPrefix: com.virkhanna
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    ARCHS: arm64
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+targets:
+  HearIt:
+    type: application
+    platform: macOS
+    sources:
+      - path: HearIt
+    info:
+      path: HearIt/Resources/Info.plist
+      properties:
+        LSUIElement: true
+        NSAccessibilityUsageDescription: "HearIt reads the text you select in any app and speaks it aloud. Accessibility access is required to read selected text from other applications."
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        NSHumanReadableCopyright: "© 2026 Vir Khanna"
+    entitlements:
+      path: HearIt/HearIt.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        com.apple.security.network.client: true
+        com.apple.security.files.user-selected.read-only: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.virkhanna.hearit
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: NO
+  HearItTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: HearItTests
+    dependencies:
+      - target: HearIt
+    settings:
+      base:
+        BUNDLE_LOADER: $(TEST_HOST)
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/HearIt.app/Contents/MacOS/HearIt
+        GENERATE_INFOPLIST_FILE: YES

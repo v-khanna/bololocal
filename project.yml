@@ -1,4 +1,8 @@
 name: HearIt
+packages:
+  HotKey:
+    url: https://github.com/soffes/HotKey
+    from: 0.2.0
 options:
   bundleIdPrefix: com.virkhanna
   deploymentTarget:
@@ -33,6 +37,8 @@ targets:
         com.apple.security.app-sandbox: false
         com.apple.security.network.client: true
         com.apple.security.files.user-selected.read-only: true
+    dependencies:
+      - package: HotKey
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.virkhanna.hearit

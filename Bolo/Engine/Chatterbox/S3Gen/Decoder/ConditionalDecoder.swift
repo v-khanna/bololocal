@@ -36,6 +36,7 @@ final class ConditionalDecoder: Module {
     let inChannels: Int
     let outChannels: Int
     let causal: Bool
+    let meanflow: Bool
 
     @ModuleInfo(key: "time_mlp") var timeMlp: TimestepEmbedding
     @ModuleInfo(key: "down_blocks") var downBlocks: [DownBlock]
@@ -43,6 +44,9 @@ final class ConditionalDecoder: Module {
     @ModuleInfo(key: "up_blocks") var upBlocks: [UpBlock]
     @ModuleInfo(key: "final_block") var finalBlock: Module      // CausalBlock1D or Block1D
     @ModuleInfo(key: "final_proj") var finalProj: Conv1dPT
+    /// Meanflow time-mixer: only constructed when `meanflow=true`.
+    /// Maps `concat(t_emb, r_emb)` → t_emb via Linear(2*timeEmbedDim, timeEmbedDim, bias=false).
+    @ModuleInfo(key: "time_embed_mixer") var timeEmbedMixer: Linear?
 
     init(
         inChannels: Int = 320,
@@ -52,12 +56,14 @@ final class ConditionalDecoder: Module {
         attentionHeadDim: Int = 64,
         nBlocks: Int = 4,
         numMidBlocks: Int = 12,
-        numHeads: Int = 8
+        numHeads: Int = 8,
+        meanflow: Bool = false
     ) {
         precondition(!channels.isEmpty, "channels must be non-empty")
         self.inChannels = inChannels
         self.outChannels = outChannels
         self.causal = causal
+        self.meanflow = meanflow
 
         let timeEmbedDim = channels[0] * 4
 
@@ -128,6 +134,16 @@ final class ConditionalDecoder: Module {
         self._finalProj.wrappedValue = Conv1dPT(
             inputChannels: finalCh, outputChannels: outChannels, kernelSize: 1
         )
+
+        // Meanflow time mixing (PyTorch: Linear(2*time_embed_dim, time_embed_dim, bias=False))
+        if meanflow {
+            self._timeEmbedMixer.wrappedValue = Linear(
+                timeEmbedDim * 2, timeEmbedDim, bias: false
+            )
+        } else {
+            self._timeEmbedMixer.wrappedValue = nil
+        }
+
         super.init()
     }
 
@@ -140,6 +156,8 @@ final class ConditionalDecoder: Module {
     ///   - t: `(B,)` timesteps.
     ///   - spks: optional `(B, 80)` speaker embedding.
     ///   - cond: optional `(B, 80, T)` conditioning.
+    ///   - r: optional `(B,)` end-time for meanflow time mixing. Required when
+    ///        `meanflow=true`; ignored otherwise.
     /// - Returns: `(B, 80, T)` velocity.
     func callAsFunction(
         _ x: MLXArray,
@@ -147,11 +165,20 @@ final class ConditionalDecoder: Module {
         mu: MLXArray,
         t: MLXArray,
         spks: MLXArray? = nil,
-        cond: MLXArray? = nil
+        cond: MLXArray? = nil,
+        r: MLXArray? = nil
     ) -> MLXArray {
         // Time embedding.
         var tEmb = sinusoidalPosEmb(t, dim: inChannels)
         tEmb = timeMlp(tEmb)                                          // (B, time_embed_dim)
+
+        // Meanflow: mix t_emb and r_emb via Linear.
+        if meanflow, let r, let mixer = timeEmbedMixer {
+            var rEmb = sinusoidalPosEmb(r, dim: inChannels)
+            rEmb = timeMlp(rEmb)
+            let concatEmb = concatenated([tEmb, rEmb], axis: -1)
+            tEmb = mixer(concatEmb)
+        }
 
         // Concatenate inputs along channel axis: [x, mu, spks_exp, cond] = (B, 320, T).
         var hx = concatenated([x, mu], axis: 1)

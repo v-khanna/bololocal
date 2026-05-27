@@ -14,9 +14,9 @@ import MLXNN
 /// `<path>` on the `ConditionalDecoder` instance.
 ///
 /// Keys explicitly skipped:
-///   `time_embed_mixer.weight`  — only used when `meanflow=True`. The
-///     production decoder configures `meanflow=False`, so this key has no
-///     destination on the Swift side and is dropped.
+///   `time_embed_mixer.weight`  — only loaded when the target decoder is
+///     configured with `meanflow=true`. For Chatterbox-Turbo (meanflow path)
+///     this key IS applied; for plain `meanflow=false` decoders it is dropped.
 enum DecoderWeightMapper {
 
     struct Report {
@@ -39,12 +39,9 @@ enum DecoderWeightMapper {
     /// the decoder estimator.
     static let sourcePrefix = "s3gen.decoder.estimator."
 
-    /// Source keys we intentionally skip (no destination in `meanflow=False`).
-    private static let skipKeys: Set<String> = [
-        "time_embed_mixer.weight",
-    ]
-
     /// Apply weights from a full safetensors dictionary onto a Swift decoder.
+    ///
+    /// `time_embed_mixer.weight` is only applied when `decoder.meanflow == true`.
     @discardableResult
     static func apply(
         weights: [String: MLXArray],
@@ -53,6 +50,12 @@ enum DecoderWeightMapper {
         var renamed: [String: MLXArray] = [:]
         var skipped: [String] = []
         var sourceKeyCount = 0
+
+        // Keys we skip depending on configuration.
+        var skipKeys: Set<String> = []
+        if !decoder.meanflow {
+            skipKeys.insert("time_embed_mixer.weight")
+        }
 
         for (key, value) in weights where key.hasPrefix(sourcePrefix) {
             sourceKeyCount += 1

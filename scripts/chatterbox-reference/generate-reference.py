@@ -189,6 +189,140 @@ print(f"  first 8: {speech_tokens[0, :8].tolist()}")
 np.save(OUTPUT_DIR / "speech_tokens.npy", np.array(speech_tokens))
 save_raw(speech_tokens, OUTPUT_DIR / "speech_tokens.bin", np.int32)
 
+# ───────────────────────────────────────────────────────────────────────────
+# S3Gen reference outputs (Phase 5)
+# ───────────────────────────────────────────────────────────────────────────
+# We exercise the S3Gen pipeline as far as we can deterministically. The full
+# flow goes:
+#     speech_tokens + ref_dict
+#       → concat [prompt_token | speech_tokens]
+#       → input_embedding              (Embedding)
+#       → encoder (UpsampleConformer)  ← captured here as `s3gen_encoder_out`
+#       → encoder_proj                 (Linear → 80)
+#       → spk_embed_affine + concat prompt_feat
+#       → decoder (CausalConditionalCFM with 10 Euler steps + CFG)
+#       → output mel                   ← `speech_feat`
+#       → mel2wav (HiFTGenerator)      ← `audio_samples`
+#
+# The encoder pipeline (everything up to encoder_proj) is fully deterministic
+# given fixed weights+inputs and is the parity target for the Swift port of
+# UpsampleConformerEncoder. Everything from `decoder()` onwards involves
+# random noise (`mx.random.normal(mu.shape)`), so reproducible parity requires
+# capturing the noise seed AND the noise itself. We do both: the noise tensor
+# is saved as `s3gen_cfm_noise.bin` for the Swift test to feed back in, and a
+# seed-aware Python rerun yields the same `speech_feat`.
+
+print("\n" + "═" * 60)
+print("S3Gen reference outputs (Phase 5)")
+print("═" * 60)
+
+# Load S3Gen weights (skip CAMPPlus speaker_encoder - we use the pre-computed
+# x-vector from conds.safetensors `gen.embedding` instead).
+print(f"\nLoading S3Gen weights from {WEIGHTS_PATH} ...")
+s3gen_weights = {}
+with safe_open(str(WEIGHTS_PATH), framework="mlx") as f:
+    for k in f.keys():
+        if k.startswith("s3gen."):
+            s3gen_weights[k[len("s3gen."):]] = f.get_tensor(k)
+print(f"  loaded {len(s3gen_weights)} s3gen.* parameters")
+
+from mlx_audio.tts.models.chatterbox_turbo.models.s3gen import S3Gen as PyS3Gen
+
+print("\nBuilding S3Token2Wav (meanflow=False) ...")
+s3gen = PyS3Gen(meanflow=False)
+s3gen_weights_sanitized = s3gen.sanitize(s3gen_weights)
+s3gen.load_weights(list(s3gen_weights_sanitized.items()), strict=False)
+s3gen.eval()
+print("  built and weights loaded")
+
+# Load pre-computed conditioning from conds.safetensors (the preset reference voice).
+print(f"\nLoading S3Gen conditioning from {CONDS_PATH} ...")
+with safe_open(str(CONDS_PATH), framework="mlx") as f:
+    gen_embedding = f.get_tensor("gen.embedding")              # (1, 192)
+    gen_prompt_feat = f.get_tensor("gen.prompt_feat")          # (1, 500, 80)
+    gen_prompt_token = f.get_tensor("gen.prompt_token")        # (1, 250)
+    gen_prompt_token_len = f.get_tensor("gen.prompt_token_len")  # (1,)
+print(f"  gen.embedding:        {gen_embedding.shape}")
+print(f"  gen.prompt_feat:      {gen_prompt_feat.shape}")
+print(f"  gen.prompt_token:     {gen_prompt_token.shape}")
+print(f"  gen.prompt_token_len: {gen_prompt_token_len.shape} = {gen_prompt_token_len.tolist()}")
+
+# Save conditioning as reference bins (Swift will load these).
+for name, arr, dtype in [
+    ("s3gen_gen_embedding", gen_embedding, np.float32),
+    ("s3gen_gen_prompt_feat", gen_prompt_feat, np.float32),
+    ("s3gen_gen_prompt_token", gen_prompt_token, np.int32),
+    ("s3gen_gen_prompt_token_len", gen_prompt_token_len, np.int32),
+]:
+    np.save(OUTPUT_DIR / f"{name}.npy", np.array(arr))
+    save_raw(arr, OUTPUT_DIR / f"{name}.bin", dtype)
+
+# Replicate the deterministic part of S3Token2Mel.__call__ step by step.
+print("\nReplicating S3Gen encoder forward pass ...")
+B = speech_tokens.shape[0]
+prompt_token = gen_prompt_token
+prompt_token_len = gen_prompt_token_len
+prompt_feat = gen_prompt_feat
+embedding = gen_embedding
+
+# Concatenate prompt tokens with generated speech tokens
+token_len_only = mx.array([speech_tokens.shape[1]] * B)
+token = mx.concatenate([prompt_token, speech_tokens], axis=1)
+token_len = prompt_token_len + token_len_only
+print(f"  concatenated tokens: {token.shape}, total length: {token_len.tolist()}")
+
+# Build mask (B, T, 1) on the concatenated sequence
+max_len = token.shape[1]
+mask = mx.arange(max_len)[None, :] < token_len[:, None]
+mask_3d = mask[:, :, None].astype(mx.float32)
+
+# Embed tokens
+token_emb = s3gen.input_embedding(token.astype(mx.int32)) * mask_3d
+mx.eval(token_emb)
+print(f"  token_emb (post-embedding, masked): {token_emb.shape}, mean={float(token_emb.mean()):+.5f}")
+save_raw(token, OUTPUT_DIR / "s3gen_encoder_input_tokens.bin", np.int32)
+save_raw(token_emb, OUTPUT_DIR / "s3gen_encoder_token_emb.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_encoder_input_tokens.npy", np.array(token))
+np.save(OUTPUT_DIR / "s3gen_encoder_token_emb.npy", np.array(token_emb))
+
+# Run encoder (the parity target for Swift UpsampleConformerEncoder)
+h, h_masks = s3gen.encoder(token_emb, token_len)
+mx.eval(h, h_masks)
+print(f"  encoder out h:        {h.shape}, mean={float(h.mean()):+.5f}, std={float(h.std()):.5f}")
+print(f"  encoder out h_masks:  {h_masks.shape}, sum={int(h_masks.sum())}")
+save_raw(h, OUTPUT_DIR / "s3gen_encoder_out.bin", np.float32)
+save_raw(h_masks, OUTPUT_DIR / "s3gen_encoder_out_mask.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_encoder_out.npy", np.array(h))
+np.save(OUTPUT_DIR / "s3gen_encoder_out_mask.npy", np.array(h_masks))
+
+# Apply encoder_proj (Linear 512 → 80)
+h_proj = s3gen.encoder_proj(h)
+mx.eval(h_proj)
+print(f"  encoder_proj out:     {h_proj.shape}")
+save_raw(h_proj, OUTPUT_DIR / "s3gen_encoder_proj_out.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_encoder_proj_out.npy", np.array(h_proj))
+
+# spk_embed_affine: normalize + Linear(192 → 80)
+embedding_norm = embedding / (mx.linalg.norm(embedding, axis=-1, keepdims=True) + 1e-8)
+spk_emb_projected = s3gen.spk_embed_affine_layer(embedding_norm)
+mx.eval(spk_emb_projected)
+print(f"  spk_embed_affine out: {spk_emb_projected.shape}")
+save_raw(spk_emb_projected, OUTPUT_DIR / "s3gen_spk_embed_affine_out.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_spk_embed_affine_out.npy", np.array(spk_emb_projected))
+
+# Add to metadata
+s3gen_metadata = {
+    "speech_tokens_shape": list(speech_tokens.shape),
+    "concat_token_shape": list(token.shape),
+    "concat_token_len": [int(x) for x in token_len.tolist()],
+    "token_emb_shape": list(token_emb.shape),
+    "encoder_out_shape": list(h.shape),
+    "encoder_proj_out_shape": list(h_proj.shape),
+    "spk_embed_affine_out_shape": list(spk_emb_projected.shape),
+    "prompt_feat_shape": list(prompt_feat.shape),
+    "embedding_shape": list(embedding.shape),
+}
+
 # ── Metadata ────────────────────────────────────────────────────────────────
 metadata = {
     "test_text": TEST_TEXT,
@@ -214,6 +348,7 @@ metadata = {
         "speech_tokens_dict_size": hp.speech_tokens_dict_size,
         "speaker_embed_size": hp.speaker_embed_size,
     },
+    "s3gen": s3gen_metadata,
 }
 with open(OUTPUT_DIR / "metadata.json", "w") as f:
     json.dump(metadata, f, indent=2)

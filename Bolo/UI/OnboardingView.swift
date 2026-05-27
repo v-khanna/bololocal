@@ -2,9 +2,15 @@ import SwiftUI
 
 struct OnboardingView: View {
     @State private var step: Step = .welcome
+    @State private var hasAccessibility: Bool = PermissionsManager.isAccessibilityGranted
     @ObservedObject var downloadProgress: ModelDownloadProgress
     let onStartDownload: () -> Void
     let onComplete: () -> Void
+
+    /// Polls AX permission state every 0.5s. macOS doesn't broadcast a notification
+    /// when the user toggles the switch in System Settings, so we have to check.
+    /// Only fires while the onboarding window is alive.
+    private let accessibilityPollTimer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     enum Step { case welcome, accessibility, modelDownload, ready }
 
@@ -16,6 +22,14 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 520, height: 380)
+        .onReceive(accessibilityPollTimer) { _ in
+            // Re-check the OS-level AX permission. Cheap; only updates @State
+            // when the value actually flips, so SwiftUI only re-renders then.
+            let current = PermissionsManager.isAccessibilityGranted
+            if current != hasAccessibility {
+                hasAccessibility = current
+            }
+        }
     }
 
     @ViewBuilder
@@ -61,13 +75,13 @@ struct OnboardingView: View {
             }
             .controlSize(.large)
             Spacer()
-            Button(PermissionsManager.isAccessibilityGranted ? "Continue" : "I've enabled it") {
-                if PermissionsManager.isAccessibilityGranted {
+            Button(hasAccessibility ? "Continue" : "I've enabled it") {
+                if hasAccessibility {
                     step = .modelDownload
                     onStartDownload()
                 }
             }
-            .disabled(!PermissionsManager.isAccessibilityGranted)
+            .disabled(!hasAccessibility)
             .keyboardShortcut(.defaultAction)
         }
     }

@@ -55,6 +55,8 @@ targets:
         product: MLXNN
       - package: mlx-swift
         product: MLXFast
+      - package: mlx-swift
+        product: MLXRandom
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.virkhanna.bolo

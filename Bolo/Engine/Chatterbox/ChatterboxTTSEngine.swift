@@ -61,29 +61,36 @@ actor ChatterboxTTSEngine: TTSEngine {
     // MARK: - Playback
 
     private func play(samples: [Float], sampleRate: Double, speed: Speed) async throws {
-        guard let format = AVAudioFormat(
+        // Source format: what Chatterbox produces (24 kHz mono float32 non-interleaved)
+        guard let sourceFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: sampleRate,
             channels: 1,
             interleaved: false
         ) else {
-            throw TTSError.playbackFailed("Could not construct AVAudioFormat at \(sampleRate)Hz mono")
+            throw TTSError.playbackFailed("Could not construct source AVAudioFormat at \(sampleRate)Hz mono")
         }
 
-        guard let buffer = AVAudioPCMBuffer(
-            pcmFormat: format,
+        // Wrap the raw samples into a source-format buffer
+        guard let sourceBuffer = AVAudioPCMBuffer(
+            pcmFormat: sourceFormat,
             frameCapacity: AVAudioFrameCount(samples.count)
         ) else {
-            throw TTSError.playbackFailed("Could not allocate PCM buffer for \(samples.count) frames")
+            throw TTSError.playbackFailed("Could not allocate source PCM buffer for \(samples.count) frames")
         }
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        if let dst = buffer.floatChannelData?[0] {
+        sourceBuffer.frameLength = AVAudioFrameCount(samples.count)
+        if let dst = sourceBuffer.floatChannelData?[0] {
             samples.withUnsafeBufferPointer { src in
                 dst.update(from: src.baseAddress!, count: samples.count)
             }
         }
 
-        let (engine, player, varispeed) = setupGraph(format: format)
+        // Set up the graph. We deliberately run the ENTIRE graph at the system output
+        // format (typically 48 kHz stereo) — sample-rate and channel conversion happens
+        // ONCE here via AVAudioConverter, before any node sees the buffer. Relying on
+        // mainMixerNode for implicit resampling causes 2× pitch + truncation in practice;
+        // pre-conversion via AVAudioConverter is the reliable path.
+        let (engine, player, varispeed) = setupGraph(forSourceFormat: sourceFormat)
         varispeed.rate = Float(speed.value)
 
         if !engine.isRunning {
@@ -93,17 +100,46 @@ actor ChatterboxTTSEngine: TTSEngine {
                 throw TTSError.playbackFailed("AVAudioEngine.start failed: \(error)")
             }
         }
+
+        // Convert source buffer → output format (e.g. 48 kHz stereo)
+        let outputFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+        guard let converter = AVAudioConverter(from: sourceFormat, to: outputFormat) else {
+            throw TTSError.playbackFailed("Could not create AVAudioConverter \(sourceFormat) → \(outputFormat)")
+        }
+        let ratio = outputFormat.sampleRate / sourceFormat.sampleRate
+        let outputCapacity = AVAudioFrameCount(Double(sourceBuffer.frameLength) * ratio + 1024)
+        guard let outputBuffer = AVAudioPCMBuffer(
+            pcmFormat: outputFormat,
+            frameCapacity: outputCapacity
+        ) else {
+            throw TTSError.playbackFailed("Could not allocate output PCM buffer")
+        }
+        var convertError: NSError?
+        var consumed = false
+        converter.convert(to: outputBuffer, error: &convertError) { _, statusPtr in
+            if consumed {
+                statusPtr.pointee = .endOfStream
+                return nil
+            }
+            consumed = true
+            statusPtr.pointee = .haveData
+            return sourceBuffer
+        }
+        if let err = convertError {
+            throw TTSError.playbackFailed("AVAudioConverter failed: \(err)")
+        }
+
         player.play()
 
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
+            player.scheduleBuffer(outputBuffer, completionCallbackType: .dataPlayedBack) { _ in
                 cont.resume()
             }
         }
     }
 
     private func setupGraph(
-        format: AVAudioFormat
+        forSourceFormat sourceFormat: AVAudioFormat
     ) -> (AVAudioEngine, AVAudioPlayerNode, AVAudioUnitVarispeed) {
         if let engine, let player = playerNode, let varispeed = varispeedNode {
             return (engine, player, varispeed)
@@ -113,14 +149,14 @@ actor ChatterboxTTSEngine: TTSEngine {
         let varispeed = AVAudioUnitVarispeed()
         engine.attach(player)
         engine.attach(varispeed)
-        // Varispeed is a time-stretcher, not a format converter. Its input and output
-        // must be the same format (24 kHz mono float32 from Chatterbox). The mainMixerNode
-        // handles the sample-rate + channel-count conversion to the system output format
-        // (typically 48 kHz stereo). Passing format: nil on the second connect makes the
-        // engine try to make Varispeed produce 48 kHz stereo, which fails with -10868
-        // (kAudioUnitErr_FormatNotSupported).
-        engine.connect(player, to: varispeed, format: format)
-        engine.connect(varispeed, to: engine.mainMixerNode, format: format)
+        // Connect the whole graph at the engine's output format (which itself was
+        // negotiated to match the system output device — typically 48 kHz stereo).
+        // We pre-convert source 24 kHz mono → output format via AVAudioConverter
+        // before scheduling, so every node sees the same format. No implicit
+        // resampling anywhere.
+        let outputFormat = engine.mainMixerNode.outputFormat(forBus: 0)
+        engine.connect(player, to: varispeed, format: outputFormat)
+        engine.connect(varispeed, to: engine.mainMixerNode, format: outputFormat)
         self.engine = engine
         self.playerNode = player
         self.varispeedNode = varispeed

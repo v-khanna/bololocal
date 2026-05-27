@@ -79,7 +79,7 @@ struct OnboardingView: View {
                 .foregroundStyle(downloadProgress.isComplete ? Color.green : Color.accentColor)
             Text(downloadProgress.isComplete ? "Voice ready" : "Downloading voice model")
                 .font(.title2)
-            Text("Bolo is downloading the Qwen3-TTS model — about 500 MB. This happens once.")
+            Text("Bolo is downloading the Chatterbox-Turbo model — about 3 GB. This happens once.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 24)

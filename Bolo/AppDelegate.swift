@@ -1,5 +1,4 @@
 import AppKit
-@preconcurrency import Qwen3TTS
 import SwiftUI
 
 @MainActor
@@ -10,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
     var coordinator: Coordinator?
-    var modelManager: ModelManager<Qwen3TTSModel>?
+    var modelManager: ModelManager<ChatterboxPipeline>?
     var downloadProgress: ModelDownloadProgress?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,15 +28,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let progress = ModelDownloadProgress()
         self.downloadProgress = progress
 
-        let manager = ModelManager<Qwen3TTSModel>(idleTimeout: 300) {
-            try await Qwen3TTSModel.fromPretrained(progressHandler: { p, label in
+        let manager = ModelManager<ChatterboxPipeline>(idleTimeout: 300) {
+            try await ChatterboxPipeline.load(progressHandler: { p, label in
                 Task { @MainActor in
                     progress.update(progress: p, label: label)
                     if p >= 1.0 { progress.complete() }
                 }
             })
         }
-        let engine: any TTSEngine = Qwen3TTSEngine(modelProvider: {
+        let engine: any TTSEngine = ChatterboxTTSEngine(modelProvider: {
             try await manager.ensureLoaded()
         })
         let playback = PlaybackController(engine: engine)

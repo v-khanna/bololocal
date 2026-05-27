@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     var popoverController: PopoverController!
     let hotkeyManager = HotkeyManager()
+    private var settingsWindow: NSWindow?
     var coordinator: Coordinator?
     var modelManager: ModelManager<Qwen3TTSModel>?
 
@@ -52,8 +53,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Settings sheet — real implementation in Task 12.
     @objc func openSettings() {
-        NSLog("HearIt: openSettings — implemented in Task 12")
+        if let win = settingsWindow {
+            win.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let view = SettingsView(settings: Settings.shared)
+        let host = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: host)
+        window.title = "HearIt Settings"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow = window
     }
 }

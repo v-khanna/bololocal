@@ -55,3 +55,10 @@ final class Settings: ObservableObject {
         hasCompletedOnboarding = false
     }
 }
+
+/// Temporary stub — Task 14 replaces with SMAppService.mainApp register/unregister.
+enum LaunchAtLogin {
+    static func set(enabled: Bool) {
+        NSLog("HearIt: LaunchAtLogin.set(\(enabled)) — real impl in Task 14")
+    }
+}

@@ -1,4 +1,4 @@
-# Release Process — HearIt
+# Release Process — Bolo
 
 This document walks through cutting a notarized release suitable for Setapp.
 
@@ -36,7 +36,7 @@ You need an [App-Specific Password](https://support.apple.com/en-us/HT204397) fo
 Store the credentials once with notarytool (replace with your values):
 
 ```bash
-xcrun notarytool store-credentials "hearit-notary" \
+xcrun notarytool store-credentials "bolo-notary" \
   --apple-id YOUR_APPLE_ID@example.com \
   --team-id YOUR_TEAM_ID \
   --password YOUR_APP_SPECIFIC_PASSWORD
@@ -54,7 +54,7 @@ After the one-time setup, every release is:
 
 This runs `build.sh` (archive → sign → DMG) then `notarize.sh` (submit → wait → staple → verify). Total time: 2–10 minutes depending on Apple's notary queue.
 
-The signed, notarized DMG lands at `build/HearIt.dmg`.
+The signed, notarized DMG lands at `build/Bolo.dmg`.
 
 ## Setapp submission
 

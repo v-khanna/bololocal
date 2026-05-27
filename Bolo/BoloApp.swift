@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct HearItApp: App {
+struct BoloApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {

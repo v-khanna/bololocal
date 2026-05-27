@@ -18,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Status item
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "HearIt")
+        let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Bolo")
         icon?.isTemplate = true
         item.button?.image = icon
         item.button?.action = #selector(togglePopover)
@@ -77,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let view = SettingsView(settings: Settings.shared)
         let host = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: host)
-        window.title = "HearIt Settings"
+        window.title = "Bolo Settings"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.center()
@@ -108,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let host = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: host)
-        window.title = "Welcome to HearIt"
+        window.title = "Welcome to Bolo"
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.center()

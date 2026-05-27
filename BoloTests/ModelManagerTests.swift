@@ -1,5 +1,5 @@
 import XCTest
-@testable import HearIt
+@testable import Bolo
 
 private struct FakeModel: Sendable {}
 

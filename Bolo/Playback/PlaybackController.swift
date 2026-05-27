@@ -17,7 +17,7 @@ final class PlaybackController {
             do {
                 try await engine.synthesize(text: text, voice: voice, speed: speed)
             } catch {
-                NSLog("HearIt playback error: \(error)")
+                NSLog("Bolo playback error: \(error)")
             }
             onComplete?()
             await MainActor.run { [weak self] in

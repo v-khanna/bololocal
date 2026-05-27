@@ -1,4 +1,4 @@
-# HearIt Menu Bar TTS — Implementation Plan
+# Bolo Menu Bar TTS — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -69,13 +69,13 @@ Before any task: confirm host environment.
 
 ## File Structure
 
-The working directory is `~/Code/tts-app/`. Once the brand is locked, rename the directory and the `HearIt` Xcode target — both renames are mechanical.
+The working directory is `~/Code/tts-app/`. Once the brand is locked, rename the directory and the `Bolo` Xcode target — both renames are mechanical.
 
 ```
 ~/Code/tts-app/
-├── HearIt.xcodeproj/                       (Task 1)
-├── HearIt/                                  (Xcode app target)
-│   ├── HearItApp.swift                     (Task 1)   @main entry
+├── Bolo.xcodeproj/                       (Task 1)
+├── Bolo/                                  (Xcode app target)
+│   ├── BoloApp.swift                     (Task 1)   @main entry
 │   ├── AppDelegate.swift                   (Task 2)   NSStatusItem owner
 │   ├── Coordinator.swift                   (Task 6)   wires everything
 │   │
@@ -108,9 +108,9 @@ The working directory is `~/Code/tts-app/`. Once the brand is locked, rename the
 │   ├── Resources/
 │   │   ├── Assets.xcassets/                (Task 1)
 │   │   └── Info.plist                      (Task 2)
-│   └── HearIt.entitlements                 (Task 2)
+│   └── Bolo.entitlements                 (Task 2)
 │
-├── HearItTests/                            (Task 1)
+├── BoloTests/                            (Task 1)
 │   ├── TTSEngineTests.swift                (Task 6)
 │   ├── ModelManagerTests.swift             (Task 9)
 │   ├── SettingsTests.swift                 (Task 10)
@@ -122,7 +122,7 @@ The working directory is `~/Code/tts-app/`. Once the brand is locked, rename the
 │
 ├── docs/
 │   ├── superpowers/plans/
-│   │   └── 2026-05-26-hearit-menubar-tts.md   (this file)
+│   │   └── 2026-05-26-bolo-menubar-tts.md   (this file)
 │   ├── SETAPP.md                           (Task 15)
 │   └── PRIVACY.md                          (Task 15)
 │
@@ -130,7 +130,7 @@ The working directory is `~/Code/tts-app/`. Once the brand is locked, rename the
 └── SCOPE.md                                (already exists)
 ```
 
-**Naming convention:** the working name `HearIt` is provisional. Use it everywhere in code, bundle ID `com.virkhanna.hearit`, until the final brand is decided. The rename later is a global find-and-replace.
+**Naming convention:** the working name `Bolo` is provisional. Use it everywhere in code, bundle ID `com.virkhanna.bolo`, until the final brand is decided. The rename later is a global find-and-replace.
 
 ---
 
@@ -151,10 +151,10 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 ## Task 1: Xcode Project Scaffold
 
 **Files:**
-- Create: `~/Code/tts-app/HearIt.xcodeproj/` (via Xcode wizard)
-- Create: `~/Code/tts-app/HearIt/HearItApp.swift`
-- Create: `~/Code/tts-app/HearIt/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json`
-- Create: `~/Code/tts-app/HearItTests/SmokeTests.swift`
+- Create: `~/Code/tts-app/Bolo.xcodeproj/` (via Xcode wizard)
+- Create: `~/Code/tts-app/Bolo/BoloApp.swift`
+- Create: `~/Code/tts-app/Bolo/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json`
+- Create: `~/Code/tts-app/BoloTests/SmokeTests.swift`
 - Create: `~/Code/tts-app/README.md`
 - Create: `~/Code/tts-app/.gitignore`
 
@@ -193,33 +193,33 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 - [ ] **Step 2: Create the Xcode project**
 
   Open Xcode → File → New → Project → macOS → App. Settings:
-  - Product Name: `HearIt`
+  - Product Name: `Bolo`
   - Team: your Apple Developer team (required later for signing)
   - Organization Identifier: `com.virkhanna`
-  - Bundle Identifier: auto-computes to `com.virkhanna.hearit`
+  - Bundle Identifier: auto-computes to `com.virkhanna.bolo`
   - Interface: SwiftUI
   - Language: Swift
   - Storage: None
   - **Uncheck** "Include Tests" (we'll add a test target manually with a cleaner structure)
-  - Save to: `~/Code/tts-app/` (this creates `~/Code/tts-app/HearIt.xcodeproj` and `~/Code/tts-app/HearIt/`)
+  - Save to: `~/Code/tts-app/` (this creates `~/Code/tts-app/Bolo.xcodeproj` and `~/Code/tts-app/Bolo/`)
 
 - [ ] **Step 3: Set deployment target and architecture**
 
-  In the project navigator → select `HearIt` project → Targets → `HearIt`:
+  In the project navigator → select `Bolo` project → Targets → `Bolo`:
   - General → Minimum Deployments → macOS = **15.0**
   - Build Settings → Architectures → **Standard Architectures (arm64)** only — remove `x86_64`
   - Build Settings → Swift Language Version = Swift 6
   - Build Settings → Strict Concurrency Checking = Complete
 
-- [ ] **Step 4: Replace generated `ContentView.swift` with a placeholder `HearItApp.swift`**
+- [ ] **Step 4: Replace generated `ContentView.swift` with a placeholder `BoloApp.swift`**
 
-  Delete `HearIt/ContentView.swift`. Replace `HearIt/HearItApp.swift` contents with:
+  Delete `Bolo/ContentView.swift`. Replace `Bolo/BoloApp.swift` contents with:
 
   ```swift
   import SwiftUI
 
   @main
-  struct HearItApp: App {
+  struct BoloApp: App {
       var body: some Scene {
           // Menu bar app: no main window. AppDelegate (added in Task 2)
           // will own the NSStatusItem and popover.
@@ -233,14 +233,14 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 - [ ] **Step 5: Add the test target**
 
   File → New → Target → macOS → Unit Testing Bundle:
-  - Product Name: `HearItTests`
-  - Target to be Tested: `HearIt`
+  - Product Name: `BoloTests`
+  - Target to be Tested: `Bolo`
 
-  Replace the generated `HearItTests.swift` file with `HearItTests/SmokeTests.swift`:
+  Replace the generated `BoloTests.swift` file with `BoloTests/SmokeTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class SmokeTests: XCTestCase {
       func test_smoke_passes() {
@@ -255,7 +255,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
   ```bash
   cat > ~/Code/tts-app/README.md <<'EOF'
-  # HearIt (working name)
+  # Bolo (working name)
 
   macOS menu bar app that reads selected text aloud in a natural AI voice.
   Fully on-device. Apple Silicon only. macOS 15+.
@@ -269,7 +269,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt.xcodeproj HearIt HearItTests README.md
+  git add Bolo.xcodeproj Bolo BoloTests README.md
   git commit -m "feat(scaffold): empty SwiftUI menu bar app + test target"
   ```
 
@@ -280,16 +280,16 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 ## Task 2: Menu Bar Presence (NSStatusItem + Entitlements)
 
 **Files:**
-- Create: `HearIt/AppDelegate.swift`
-- Modify: `HearIt/HearItApp.swift`
-- Modify: `HearIt/Resources/Info.plist`
-- Create: `HearIt/HearIt.entitlements`
+- Create: `Bolo/AppDelegate.swift`
+- Modify: `Bolo/BoloApp.swift`
+- Modify: `Bolo/Resources/Info.plist`
+- Create: `Bolo/Bolo.entitlements`
 
 - [ ] **Step 1: Add `LSUIElement = true` to Info.plist**
 
   This hides the Dock icon and removes the standard menu bar — making it a true menu-bar-only app.
 
-  In Xcode → `HearIt` target → Info tab → add a new key:
+  In Xcode → `Bolo` target → Info tab → add a new key:
   - Key: `Application is agent (UIElement)` (raw: `LSUIElement`)
   - Type: Boolean
   - Value: `YES`
@@ -299,11 +299,11 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
   In the same Info tab, add:
   - Key: `Privacy - Accessibility Usage Description` (raw: `NSAccessibilityUsageDescription`)
   - Type: String
-  - Value: `HearIt reads the text you select in any app and speaks it aloud. Accessibility access is required to read selected text from other applications.`
+  - Value: `Bolo reads the text you select in any app and speaks it aloud. Accessibility access is required to read selected text from other applications.`
 
 - [ ] **Step 3: Configure entitlements**
 
-  Open the auto-generated `HearIt.entitlements` (or create one if absent). The entitlements XML body:
+  Open the auto-generated `Bolo.entitlements` (or create one if absent). The entitlements XML body:
 
   ```xml
   <?xml version="1.0" encoding="UTF-8"?>
@@ -328,19 +328,19 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 5: Write the failing test for AppDelegate creating a status item**
 
-  Add `HearItTests/AppDelegateTests.swift`:
+  Add `BoloTests/AppDelegateTests.swift`:
 
   ```swift
   import XCTest
   import AppKit
-  @testable import HearIt
+  @testable import Bolo
 
   final class AppDelegateTests: XCTestCase {
       func test_applicationDidFinishLaunching_createsStatusItem() {
           let delegate = AppDelegate()
           delegate.applicationDidFinishLaunching(Notification(name: .init("test")))
           XCTAssertNotNil(delegate.statusItem)
-          XCTAssertEqual(delegate.statusItem?.button?.image?.accessibilityDescription, "HearIt")
+          XCTAssertEqual(delegate.statusItem?.button?.image?.accessibilityDescription, "Bolo")
       }
   }
   ```
@@ -349,7 +349,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 6: Implement `AppDelegate`**
 
-  Create `HearIt/AppDelegate.swift`:
+  Create `Bolo/AppDelegate.swift`:
 
   ```swift
   import AppKit
@@ -360,7 +360,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
       func applicationDidFinishLaunching(_ notification: Notification) {
           let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-          let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "HearIt")
+          let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Bolo")
           icon?.isTemplate = true
           item.button?.image = icon
           item.button?.action = #selector(handleStatusItemClick)
@@ -370,20 +370,20 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
       @objc private func handleStatusItemClick() {
           // Popover opens here (Task 3 wires this up).
-          NSLog("HearIt status item clicked")
+          NSLog("Bolo status item clicked")
       }
   }
   ```
 
 - [ ] **Step 7: Wire AppDelegate into the SwiftUI App**
 
-  Replace `HearIt/HearItApp.swift`:
+  Replace `Bolo/BoloApp.swift`:
 
   ```swift
   import SwiftUI
 
   @main
-  struct HearItApp: App {
+  struct BoloApp: App {
       @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
       var body: some Scene {
@@ -396,13 +396,13 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
   Run: `⌘U`. Expected: AppDelegateTests passes.
 
-  Run the app: `⌘R`. Expected: a waveform icon appears in the menu bar. Clicking it logs `HearIt status item clicked` to the Xcode console. No Dock icon. No standard menu bar at the top.
+  Run the app: `⌘R`. Expected: a waveform icon appears in the menu bar. Clicking it logs `Bolo status item clicked` to the Xcode console. No Dock icon. No standard menu bar at the top.
 
 - [ ] **Step 9: Commit**
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(menu-bar): NSStatusItem with waveform icon, LSUIElement, Hardened Runtime, AX usage description"
   ```
 
@@ -411,17 +411,17 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 ## Task 3: Blank Popover Attached to Status Item
 
 **Files:**
-- Create: `HearIt/UI/PopoverController.swift`
-- Modify: `HearIt/AppDelegate.swift`
+- Create: `Bolo/UI/PopoverController.swift`
+- Modify: `Bolo/AppDelegate.swift`
 
 - [ ] **Step 1: Write the failing test**
 
-  Add `HearItTests/PopoverControllerTests.swift`:
+  Add `BoloTests/PopoverControllerTests.swift`:
 
   ```swift
   import XCTest
   import AppKit
-  @testable import HearIt
+  @testable import Bolo
 
   final class PopoverControllerTests: XCTestCase {
       func test_init_createsPopoverWithCorrectSize() {
@@ -443,7 +443,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 2: Implement `PopoverController`**
 
-  Create `HearIt/UI/PopoverController.swift`:
+  Create `Bolo/UI/PopoverController.swift`:
 
   ```swift
   import AppKit
@@ -476,7 +476,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
       var body: some View {
           ZStack {
               VisualEffectBackground()
-              Text("HearIt")
+              Text("Bolo")
                   .font(.title3)
                   .foregroundStyle(.secondary)
           }
@@ -499,7 +499,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 3: Update AppDelegate to own and toggle the popover**
 
-  Replace `HearIt/AppDelegate.swift`:
+  Replace `Bolo/AppDelegate.swift`:
 
   ```swift
   import AppKit
@@ -511,7 +511,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
       func applicationDidFinishLaunching(_ notification: Notification) {
           let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-          let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "HearIt")
+          let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Bolo")
           icon?.isTemplate = true
           item.button?.image = icon
           item.button?.action = #selector(togglePopover)
@@ -534,13 +534,13 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
   Run: `⌘U`. Expected: PopoverControllerTests passes, AppDelegateTests still passes.
 
-  Run: `⌘R`. Expected: clicking the menu bar icon opens a 320×280 popover with translucent vibrancy background showing "HearIt" centered. Clicking the icon again (or anywhere outside) dismisses it.
+  Run: `⌘R`. Expected: clicking the menu bar icon opens a 320×280 popover with translucent vibrancy background showing "Bolo" centered. Clicking the icon again (or anywhere outside) dismisses it.
 
 - [ ] **Step 5: Commit**
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(ui): native-stealth NSPopover with vibrancy attached to status item"
   ```
 
@@ -549,23 +549,23 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 ## Task 4: Global Hotkey (⌘⇧R)
 
 **Files:**
-- Modify: `HearIt.xcodeproj` (add HotKey SPM dependency via Xcode)
-- Create: `HearIt/Hotkey/HotkeyManager.swift`
-- Create: `HearItTests/HotkeyManagerTests.swift`
+- Modify: `Bolo.xcodeproj` (add HotKey SPM dependency via Xcode)
+- Create: `Bolo/Hotkey/HotkeyManager.swift`
+- Create: `BoloTests/HotkeyManagerTests.swift`
 
 - [ ] **Step 1: Add the HotKey Swift Package**
 
-  In Xcode → File → Add Package Dependencies → enter `https://github.com/soffes/HotKey` → Dependency Rule: Up to Next Major Version, `0.2.0` → Add Package → check `HotKey` library and add to the `HearIt` target.
+  In Xcode → File → Add Package Dependencies → enter `https://github.com/soffes/HotKey` → Dependency Rule: Up to Next Major Version, `0.2.0` → Add Package → check `HotKey` library and add to the `Bolo` target.
 
   Verify: the project navigator shows `HotKey` under "Package Dependencies."
 
 - [ ] **Step 2: Write the failing test**
 
-  Create `HearItTests/HotkeyManagerTests.swift`:
+  Create `BoloTests/HotkeyManagerTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class HotkeyManagerTests: XCTestCase {
       func test_register_storesCallback() {
@@ -593,7 +593,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 3: Implement `HotkeyManager`**
 
-  Create `HearIt/Hotkey/HotkeyManager.swift`:
+  Create `Bolo/Hotkey/HotkeyManager.swift`:
 
   ```swift
   import Foundation
@@ -636,11 +636,11 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
   ```swift
   let hotkey = HotkeyManager()
-  hotkey.register { NSLog("HearIt hotkey fired") }
+  hotkey.register { NSLog("Bolo hotkey fired") }
   self.hotkeyManager = hotkey  // add this stored property
   ```
 
-  Add `let hotkeyManager: HotkeyManager` style as a stored property. Run: `⌘R`. With the app running, press ⌘⇧R from any app. Expected: `HearIt hotkey fired` logs in the Xcode console.
+  Add `let hotkeyManager: HotkeyManager` style as a stored property. Run: `⌘R`. With the app running, press ⌘⇧R from any app. Expected: `Bolo hotkey fired` logs in the Xcode console.
 
   **Note:** If the hotkey doesn't fire, the user may need to grant the app Input Monitoring permission. This is a one-time `System Settings → Privacy & Security → Input Monitoring` enable, surfaced properly in Task 13's onboarding.
 
@@ -652,7 +652,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests *.xcodeproj
+  git add Bolo BoloTests *.xcodeproj
   git commit -m "feat(hotkey): HotkeyManager with HotKey package, ⌘⇧R global registration"
   ```
 
@@ -661,17 +661,17 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 ## Task 5: Accessibility Permission + Selected Text Capture
 
 **Files:**
-- Create: `HearIt/Capture/PermissionsManager.swift`
-- Create: `HearIt/Capture/TextCaptureManager.swift`
-- Create: `HearItTests/TextCaptureManagerTests.swift`
+- Create: `Bolo/Capture/PermissionsManager.swift`
+- Create: `Bolo/Capture/TextCaptureManager.swift`
+- Create: `BoloTests/TextCaptureManagerTests.swift`
 
 - [ ] **Step 1: Write the failing test for PermissionsManager**
 
-  Add `HearItTests/PermissionsManagerTests.swift`:
+  Add `BoloTests/PermissionsManagerTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class PermissionsManagerTests: XCTestCase {
       func test_isAccessibilityGranted_returnsBool() {
@@ -687,7 +687,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 2: Implement `PermissionsManager`**
 
-  Create `HearIt/Capture/PermissionsManager.swift`:
+  Create `Bolo/Capture/PermissionsManager.swift`:
 
   ```swift
   import ApplicationServices
@@ -717,11 +717,11 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 3: Write the failing test for TextCaptureManager**
 
-  Add `HearItTests/TextCaptureManagerTests.swift`:
+  Add `BoloTests/TextCaptureManagerTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class TextCaptureManagerTests: XCTestCase {
       func test_captureFromClipboard_returnsCurrentClipboardString() {
@@ -745,7 +745,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
 - [ ] **Step 4: Implement `TextCaptureManager`**
 
-  Create `HearIt/Capture/TextCaptureManager.swift`:
+  Create `Bolo/Capture/TextCaptureManager.swift`:
 
   ```swift
   import ApplicationServices
@@ -810,7 +810,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
   }
   ```
 
-  Run: `⌘R`. Grant Accessibility permission when the prompt appears (System Settings → Privacy & Security → Accessibility → enable HearIt). Then:
+  Run: `⌘R`. Grant Accessibility permission when the prompt appears (System Settings → Privacy & Security → Accessibility → enable Bolo). Then:
   1. In Safari, select a paragraph of text.
   2. Press ⌘⇧R.
   3. Expected: Xcode console logs `captured: <the selected text>`.
@@ -823,7 +823,7 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(capture): AX selected-text capture with clipboard fallback, PermissionsManager API"
   ```
 
@@ -834,20 +834,20 @@ Every commit must leave a buildable, runnable app. If a task can't deliver that,
 This task is the biggest. It proves the entire pipeline end-to-end using the macOS built-in `AVSpeechSynthesizer` voice — no model download, no MLX, just a real audio path. After this commit, ⌘⇧R reads selected text aloud (in a robotic system voice). Tasks 7–9 swap the engine for the real Qwen3 voice without changing this scaffolding.
 
 **Files:**
-- Create: `HearIt/Engine/TTSEngine.swift`
-- Create: `HearIt/Engine/MockTTSEngine.swift`
-- Create: `HearIt/Playback/PlaybackController.swift`
-- Create: `HearIt/Coordinator.swift`
-- Modify: `HearIt/AppDelegate.swift`
-- Create: `HearItTests/TTSEngineTests.swift`
+- Create: `Bolo/Engine/TTSEngine.swift`
+- Create: `Bolo/Engine/MockTTSEngine.swift`
+- Create: `Bolo/Playback/PlaybackController.swift`
+- Create: `Bolo/Coordinator.swift`
+- Modify: `Bolo/AppDelegate.swift`
+- Create: `BoloTests/TTSEngineTests.swift`
 
 - [ ] **Step 1: Define value types — test first**
 
-  Add `HearItTests/TTSEngineTests.swift`:
+  Add `BoloTests/TTSEngineTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class TTSEngineTests: XCTestCase {
       func test_voiceID_isHashable() {
@@ -878,7 +878,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
 
 - [ ] **Step 2: Implement `TTSEngine.swift`**
 
-  Create `HearIt/Engine/TTSEngine.swift`:
+  Create `Bolo/Engine/TTSEngine.swift`:
 
   ```swift
   import Foundation
@@ -920,7 +920,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
 
 - [ ] **Step 3: Implement `MockTTSEngine` using AVSpeechSynthesizer**
 
-  Create `HearIt/Engine/MockTTSEngine.swift`:
+  Create `Bolo/Engine/MockTTSEngine.swift`:
 
   ```swift
   import AVFoundation
@@ -974,7 +974,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
 
   PlaybackController owns the *current* engine and exposes a simpler imperative interface to the Coordinator. (In the mock-engine world this is thin; in Task 7 it grows to manage AVAudioEngine output buffers.)
 
-  Create `HearIt/Playback/PlaybackController.swift`:
+  Create `Bolo/Playback/PlaybackController.swift`:
 
   ```swift
   import Foundation
@@ -996,7 +996,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
               do {
                   try await engine.synthesize(text: text, voice: voice, speed: speed)
               } catch {
-                  NSLog("HearIt playback error: \(error)")
+                  NSLog("Bolo playback error: \(error)")
               }
           }
       }
@@ -1011,7 +1011,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
 
 - [ ] **Step 5: Implement `Coordinator`**
 
-  Create `HearIt/Coordinator.swift`:
+  Create `Bolo/Coordinator.swift`:
 
   ```swift
   import AppKit
@@ -1041,7 +1041,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
           }
           guard let text = TextCaptureManager.captureSelectedText(),
                 !text.isEmpty else {
-              NSLog("HearIt: nothing selected")
+              NSLog("Bolo: nothing selected")
               return
           }
           // Voice + speed wired to Settings in Task 10. For now: defaults.
@@ -1052,7 +1052,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
 
 - [ ] **Step 6: Wire Coordinator into AppDelegate**
 
-  Replace `HearIt/AppDelegate.swift`:
+  Replace `Bolo/AppDelegate.swift`:
 
   ```swift
   import AppKit
@@ -1067,7 +1067,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
       func applicationDidFinishLaunching(_ notification: Notification) {
           // Status item
           let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-          let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "HearIt")
+          let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Bolo")
           icon?.isTemplate = true
           item.button?.image = icon
           item.button?.action = #selector(togglePopover)
@@ -1103,7 +1103,7 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(pipeline): end-to-end ⌘⇧R → AX capture → AVSpeechSynthesizer playback (mock engine)"
   ```
 
@@ -1151,14 +1151,14 @@ Plan tasks affected: **7, 8, 9, 10, 11, 12, 13**. Each task's body below should 
 The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 **Files:**
-- Modify: `HearIt.xcodeproj` (add speech-swift SPM dependency)
-- Create: `HearIt/Engine/Qwen3TTSEngine.swift`
-- Modify: `HearIt/Engine/TTSEngine.swift` (add a richer default voice)
-- Modify: `HearItTests/TTSEngineTests.swift`
+- Modify: `Bolo.xcodeproj` (add speech-swift SPM dependency)
+- Create: `Bolo/Engine/Qwen3TTSEngine.swift`
+- Modify: `Bolo/Engine/TTSEngine.swift` (add a richer default voice)
+- Modify: `BoloTests/TTSEngineTests.swift`
 
 - [ ] **Step 1: Add the speech-swift Swift Package**
 
-  In Xcode → File → Add Package Dependencies → enter `https://github.com/soniqo/speech-swift` → Dependency Rule: Up to Next Major Version, `0.0.9`. Add to the `HearIt` target:
+  In Xcode → File → Add Package Dependencies → enter `https://github.com/soniqo/speech-swift` → Dependency Rule: Up to Next Major Version, `0.0.9`. Add to the `Bolo` target:
   - Library: `Qwen3TTS`
 
   Verify the project navigator lists `speech-swift` under Package Dependencies. Build: `⌘B`. Expected: success.
@@ -1167,7 +1167,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Write the failing test**
 
-  Update `HearItTests/TTSEngineTests.swift` — add:
+  Update `BoloTests/TTSEngineTests.swift` — add:
 
   ```swift
   func test_qwen3Engine_initializes() {
@@ -1176,18 +1176,18 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
   }
 
   // Long-running, opt-in test — actually loads the model and synthesizes.
-  // Skip in CI; run manually via `xcodebuild test -only-testing:HearItTests/TTSEngineTests/test_qwen3Engine_synthesize_realModel`.
+  // Skip in CI; run manually via `xcodebuild test -only-testing:BoloTests/TTSEngineTests/test_qwen3Engine_synthesize_realModel`.
   func test_qwen3Engine_synthesize_realModel() async throws {
       try XCTSkipIf(ProcessInfo.processInfo.environment["HEARIT_RUN_HEAVY_TESTS"] != "1",
                     "Set HEARIT_RUN_HEAVY_TESTS=1 to run model integration tests")
       let engine = Qwen3TTSEngine()
-      try await engine.synthesize(text: "Hello from HearIt.", voice: .systemDefault, speed: Speed(1.0))
+      try await engine.synthesize(text: "Hello from Bolo.", voice: .systemDefault, speed: Speed(1.0))
   }
   ```
 
 - [ ] **Step 3: Implement `Qwen3TTSEngine`**
 
-  Create `HearIt/Engine/Qwen3TTSEngine.swift`:
+  Create `Bolo/Engine/Qwen3TTSEngine.swift`:
 
   ```swift
   import Foundation
@@ -1264,7 +1264,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests *.xcodeproj
+  git add Bolo BoloTests *.xcodeproj
   git commit -m "feat(engine): Qwen3TTSEngine wrapping speech-swift, awaiting model from Task 9"
   ```
 
@@ -1273,21 +1273,21 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 ## Task 8: Model Download
 
 **Files:**
-- Create: `HearIt/Engine/ModelDownloader.swift`
-- Create: `HearItTests/ModelDownloaderTests.swift`
+- Create: `Bolo/Engine/ModelDownloader.swift`
+- Create: `BoloTests/ModelDownloaderTests.swift`
 
 - [ ] **Step 1: Write the failing test**
 
-  Create `HearItTests/ModelDownloaderTests.swift`:
+  Create `BoloTests/ModelDownloaderTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class ModelDownloaderTests: XCTestCase {
       func test_destinationURL_isInApplicationSupportSubdirectory() {
           let url = ModelDownloader.destinationURL(forModel: "qwen3-tts")
-          XCTAssertTrue(url.path.contains("Application Support/HearIt/models"))
+          XCTAssertTrue(url.path.contains("Application Support/Bolo/models"))
           XCTAssertTrue(url.path.hasSuffix("qwen3-tts.bin"))
       }
 
@@ -1307,7 +1307,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Implement `ModelDownloader`**
 
-  Create `HearIt/Engine/ModelDownloader.swift`:
+  Create `Bolo/Engine/ModelDownloader.swift`:
 
   ```swift
   import Foundation
@@ -1318,7 +1318,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       static func destinationURL(forModel name: String) -> URL {
           let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
           return support
-              .appendingPathComponent("HearIt", isDirectory: true)
+              .appendingPathComponent("Bolo", isDirectory: true)
               .appendingPathComponent("models", isDirectory: true)
               .appendingPathComponent("\(name).bin")
       }
@@ -1374,7 +1374,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(engine): ModelDownloader with progress reporting, idempotent download"
   ```
 
@@ -1385,17 +1385,17 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 ## Task 9: ModelManager Actor (Lazy-Load + Idle Unload)
 
 **Files:**
-- Create: `HearIt/Engine/ModelManager.swift`
-- Create: `HearItTests/ModelManagerTests.swift`
-- Modify: `HearIt/AppDelegate.swift`
+- Create: `Bolo/Engine/ModelManager.swift`
+- Create: `BoloTests/ModelManagerTests.swift`
+- Modify: `Bolo/AppDelegate.swift`
 
 - [ ] **Step 1: Write the failing test**
 
-  Create `HearItTests/ModelManagerTests.swift`:
+  Create `BoloTests/ModelManagerTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class ModelManagerTests: XCTestCase {
 
@@ -1438,7 +1438,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Implement `ModelManager`**
 
-  Create `HearIt/Engine/ModelManager.swift`:
+  Create `Bolo/Engine/ModelManager.swift`:
 
   ```swift
   import Foundation
@@ -1547,7 +1547,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
                   await MainActor.run { engine.setModel(model) }
                   try await engine.synthesize(text: text, voice: voice, speed: speed)
               } catch {
-                  NSLog("HearIt playback error: \(error)")
+                  NSLog("Bolo playback error: \(error)")
               }
           }
       }
@@ -1568,13 +1568,13 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   At this point ⌘⇧R will fail with "modelNotLoaded" until the model file is downloaded. That's expected — Task 13's onboarding flow triggers the download.
 
-  To test the engine path manually right now: download the Qwen3-TTS weight file by hand from [Hugging Face](https://huggingface.co/) (URL TBD — confirm in Task 13) and place it at `~/Library/Application Support/HearIt/models/qwen3-tts.bin`. Then run, press ⌘⇧R with text selected. Expected: high-quality Qwen3 voice reads the text.
+  To test the engine path manually right now: download the Qwen3-TTS weight file by hand from [Hugging Face](https://huggingface.co/) (URL TBD — confirm in Task 13) and place it at `~/Library/Application Support/Bolo/models/qwen3-tts.bin`. Then run, press ⌘⇧R with text selected. Expected: high-quality Qwen3 voice reads the text.
 
 - [ ] **Step 5: Commit**
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(engine): ModelManager actor with lazy-load + idle unload, AppDelegate now wires Qwen3"
   ```
 
@@ -1583,19 +1583,19 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 ## Task 10: Settings + Voice Catalog
 
 **Files:**
-- Create: `HearIt/Models/Settings.swift`
-- Create: `HearIt/Models/VoiceCatalog.swift`
-- Create: `HearItTests/SettingsTests.swift`
-- Create: `HearItTests/VoiceCatalogTests.swift`
-- Modify: `HearIt/Coordinator.swift`
+- Create: `Bolo/Models/Settings.swift`
+- Create: `Bolo/Models/VoiceCatalog.swift`
+- Create: `BoloTests/SettingsTests.swift`
+- Create: `BoloTests/VoiceCatalogTests.swift`
+- Modify: `Bolo/Coordinator.swift`
 
 - [ ] **Step 1: Write failing tests for VoiceCatalog**
 
-  Create `HearItTests/VoiceCatalogTests.swift`:
+  Create `BoloTests/VoiceCatalogTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class VoiceCatalogTests: XCTestCase {
       func test_curated_hasExactly7Voices() {
@@ -1623,7 +1623,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Implement `VoiceCatalog`**
 
-  Create `HearIt/Models/VoiceCatalog.swift`:
+  Create `Bolo/Models/VoiceCatalog.swift`:
 
   ```swift
   import Foundation
@@ -1660,11 +1660,11 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 3: Write failing tests for Settings**
 
-  Create `HearItTests/SettingsTests.swift`:
+  Create `BoloTests/SettingsTests.swift`:
 
   ```swift
   import XCTest
-  @testable import HearIt
+  @testable import Bolo
 
   final class SettingsTests: XCTestCase {
       override func setUp() {
@@ -1695,7 +1695,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 4: Implement `Settings`**
 
-  Create `HearIt/Models/Settings.swift`:
+  Create `Bolo/Models/Settings.swift`:
 
   ```swift
   import Foundation
@@ -1707,11 +1707,11 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       static let shared = Settings()
 
       private enum Key {
-          static let voiceID = "hearit.voiceID"
-          static let speed = "hearit.speed"
-          static let showAllVoices = "hearit.showAllVoices"
-          static let launchAtLogin = "hearit.launchAtLogin"
-          static let hasCompletedOnboarding = "hearit.hasCompletedOnboarding"
+          static let voiceID = "bolo.voiceID"
+          static let speed = "bolo.speed"
+          static let showAllVoices = "bolo.showAllVoices"
+          static let launchAtLogin = "bolo.launchAtLogin"
+          static let hasCompletedOnboarding = "bolo.hasCompletedOnboarding"
       }
 
       private let defaults: UserDefaults
@@ -1769,7 +1769,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 5: Update Coordinator to read from Settings**
 
-  In `HearIt/Coordinator.swift`, change the `handleHotkey` method:
+  In `Bolo/Coordinator.swift`, change the `handleHotkey` method:
 
   ```swift
   private func handleHotkey() {
@@ -1779,7 +1779,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       }
       guard let text = TextCaptureManager.captureSelectedText(),
             !text.isEmpty else {
-          NSLog("HearIt: nothing selected")
+          NSLog("Bolo: nothing selected")
           return
       }
       let s = Settings.shared
@@ -1797,7 +1797,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(settings): @AppStorage-backed Settings + curated 7-voice catalog"
   ```
 
@@ -1806,13 +1806,13 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 ## Task 11: Native-Stealth Popover View
 
 **Files:**
-- Create: `HearIt/UI/PopoverView.swift`
-- Modify: `HearIt/UI/PopoverController.swift`
-- Modify: `HearIt/Coordinator.swift` (expose recent text + playback state)
+- Create: `Bolo/UI/PopoverView.swift`
+- Modify: `Bolo/UI/PopoverController.swift`
+- Modify: `Bolo/Coordinator.swift` (expose recent text + playback state)
 
 - [ ] **Step 1: Implement `PopoverView`**
 
-  Create `HearIt/UI/PopoverView.swift`:
+  Create `Bolo/UI/PopoverView.swift`:
 
   ```swift
   import SwiftUI
@@ -1844,7 +1844,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
           HStack {
               Image(systemName: "waveform")
                   .foregroundStyle(.secondary)
-              Text("HearIt").font(.headline)
+              Text("Bolo").font(.headline)
               Spacer()
               Button(action: onOpenSettings) {
                   Image(systemName: "gearshape").foregroundStyle(.secondary)
@@ -1928,7 +1928,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Update Coordinator to publish state**
 
-  In `HearIt/Coordinator.swift`, add a `state: CoordinatorState` property and update it on hotkey fire and on playback completion:
+  In `Bolo/Coordinator.swift`, add a `state: CoordinatorState` property and update it on hotkey fire and on playback completion:
 
   ```swift
   @MainActor
@@ -1981,7 +1981,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 3: Wire `PopoverView` into `PopoverController`**
 
-  Update `HearIt/UI/PopoverController.swift`:
+  Update `Bolo/UI/PopoverController.swift`:
 
   ```swift
   final class PopoverController {
@@ -2022,7 +2022,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   ```swift
   func openSettings() {
-      NSLog("HearIt: openSettings — implemented in Task 12")
+      NSLog("Bolo: openSettings — implemented in Task 12")
   }
   ```
 
@@ -2030,7 +2030,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   Run: `⌘R`. Click the menu bar icon. Expected:
   - Popover is 320×360 with vibrancy
-  - Header shows "waveform" + "HearIt" + gear icon
+  - Header shows "waveform" + "Bolo" + gear icon
   - Empty-state hint "Select text in any app and press ⌘⇧R."
   - Disabled play/stop buttons
   - Voice picker shows 7 names
@@ -2044,7 +2044,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(ui): native-stealth popover view — preview, transport, voice picker, speed slider"
   ```
 
@@ -2053,12 +2053,12 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 ## Task 12: Settings Sheet
 
 **Files:**
-- Create: `HearIt/UI/SettingsView.swift`
-- Modify: `HearIt/AppDelegate.swift`
+- Create: `Bolo/UI/SettingsView.swift`
+- Modify: `Bolo/AppDelegate.swift`
 
 - [ ] **Step 1: Implement `SettingsView`**
 
-  Create `HearIt/UI/SettingsView.swift`:
+  Create `Bolo/UI/SettingsView.swift`:
 
   ```swift
   import SwiftUI
@@ -2080,7 +2080,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       // MARK: - General
       private var generalTab: some View {
           Form {
-              Toggle("Launch HearIt at login", isOn: $settings.launchAtLogin)
+              Toggle("Launch Bolo at login", isOn: $settings.launchAtLogin)
                   .onChange(of: settings.launchAtLogin) { _, new in
                       LaunchAtLogin.set(enabled: new)
                   }
@@ -2118,7 +2118,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
                   }
               }
               Toggle("Show all voices in popover (advanced)", isOn: $settings.showAllVoices)
-              Text("HearIt ships with 7 hand-picked voices. Enabling 'Show all' adds every voice the engine supports — useful if you want more variety or non-English voices.")
+              Text("Bolo ships with 7 hand-picked voices. Enabling 'Show all' adds every voice the engine supports — useful if you want more variety or non-English voices.")
                   .font(.caption)
                   .foregroundStyle(.secondary)
                   .padding(.top, 4)
@@ -2129,7 +2129,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       private var aboutTab: some View {
           VStack(spacing: 8) {
               Image(systemName: "waveform").font(.system(size: 48)).foregroundStyle(.secondary)
-              Text("HearIt").font(.title2)
+              Text("Bolo").font(.title2)
               Text("Version \(Bundle.main.shortVersionString) (\(Bundle.main.buildNumber))")
                   .foregroundStyle(.secondary)
               Text("Reads selected text aloud, fully on-device.").font(.caption)
@@ -2151,7 +2151,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Stub `LaunchAtLogin` (real implementation in Task 14)**
 
-  Add to `HearIt/Models/Settings.swift` for now (move to its own file in Task 14):
+  Add to `Bolo/Models/Settings.swift` for now (move to its own file in Task 14):
 
   ```swift
   enum LaunchAtLogin {
@@ -2163,7 +2163,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 3: Open settings as a window from AppDelegate**
 
-  In `HearIt/AppDelegate.swift`, replace the `openSettings()` stub:
+  In `Bolo/AppDelegate.swift`, replace the `openSettings()` stub:
 
   ```swift
   private var settingsWindow: NSWindow?
@@ -2179,7 +2179,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       }
       let host = NSHostingController(rootView: view)
       let window = NSWindow(contentViewController: host)
-      window.title = "HearIt Settings"
+      window.title = "Bolo Settings"
       window.styleMask = [.titled, .closable]
       window.isReleasedWhenClosed = false
       window.center()
@@ -2197,7 +2197,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(ui): three-tab settings sheet — General, Voices, About"
   ```
 
@@ -2206,12 +2206,12 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 ## Task 13: First-Run Onboarding
 
 **Files:**
-- Create: `HearIt/UI/OnboardingView.swift`
-- Modify: `HearIt/AppDelegate.swift`
+- Create: `Bolo/UI/OnboardingView.swift`
+- Modify: `Bolo/AppDelegate.swift`
 
 - [ ] **Step 1: Implement `OnboardingView`**
 
-  Create `HearIt/UI/OnboardingView.swift`:
+  Create `Bolo/UI/OnboardingView.swift`:
 
   ```swift
   import SwiftUI
@@ -2240,7 +2240,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       private var welcome: some View {
           VStack(spacing: 16) {
               Image(systemName: "waveform").font(.system(size: 60)).foregroundStyle(.tint)
-              Text("Welcome to HearIt").font(.title)
+              Text("Welcome to Bolo").font(.title)
               Text("Select text in any app, press ⌘⇧R, and hear it read aloud in a natural AI voice. All on-device.")
                   .multilineTextAlignment(.center)
                   .foregroundStyle(.secondary)
@@ -2255,7 +2255,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
           VStack(spacing: 16) {
               Image(systemName: "lock.shield").font(.system(size: 60)).foregroundStyle(.tint)
               Text("Allow Accessibility").font(.title2)
-              Text("HearIt needs Accessibility access to read the text you select in other apps. Nothing is sent over the network.")
+              Text("Bolo needs Accessibility access to read the text you select in other apps. Nothing is sent over the network.")
                   .multilineTextAlignment(.center)
                   .foregroundStyle(.secondary)
                   .padding(.horizontal, 32)
@@ -2278,7 +2278,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
           VStack(spacing: 16) {
               Image(systemName: "arrow.down.circle").font(.system(size: 60)).foregroundStyle(.tint)
               Text("Downloading voices").font(.title2)
-              Text("HearIt is downloading the Qwen3-TTS voice model — about 350 MB. This happens once.")
+              Text("Bolo is downloading the Qwen3-TTS voice model — about 350 MB. This happens once.")
                   .multilineTextAlignment(.center)
                   .foregroundStyle(.secondary)
                   .padding(.horizontal, 32)
@@ -2300,7 +2300,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
           VStack(spacing: 16) {
               Image(systemName: "checkmark.circle.fill").font(.system(size: 60)).foregroundStyle(.green)
               Text("You're set").font(.title2)
-              Text("Select text in any app and press ⌘⇧R to hear it read aloud. HearIt lives in your menu bar.")
+              Text("Select text in any app and press ⌘⇧R to hear it read aloud. Bolo lives in your menu bar.")
                   .multilineTextAlignment(.center)
                   .foregroundStyle(.secondary)
                   .padding(.horizontal, 32)
@@ -2341,7 +2341,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Show OnboardingView on first launch**
 
-  In `HearIt/AppDelegate.swift`, after `Settings.shared.load()`:
+  In `Bolo/AppDelegate.swift`, after `Settings.shared.load()`:
 
   ```swift
   if !Settings.shared.hasCompletedOnboarding {
@@ -2361,7 +2361,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
       }
       let host = NSHostingController(rootView: view)
       let window = NSWindow(contentViewController: host)
-      window.title = "Welcome to HearIt"
+      window.title = "Welcome to Bolo"
       window.styleMask = [.titled, .closable]
       window.isReleasedWhenClosed = false
       window.center()
@@ -2373,15 +2373,15 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 3: Visual verification**
 
-  - Reset onboarding state: in Terminal, run `defaults delete com.virkhanna.hearit hearit.hasCompletedOnboarding` (or call `Settings.shared.reset()` from a temporary debug menu).
-  - Delete the model file: `rm -f ~/Library/Application\ Support/HearIt/models/qwen3-tts.bin`
+  - Reset onboarding state: in Terminal, run `defaults delete com.virkhanna.bolo bolo.hasCompletedOnboarding` (or call `Settings.shared.reset()` from a temporary debug menu).
+  - Delete the model file: `rm -f ~/Library/Application\ Support/Bolo/models/qwen3-tts.bin`
   - Run the app: `⌘R`. Expected: onboarding window opens. Step through welcome → accessibility (real prompt fires) → model download (progress bar fills) → ready. Click "Get Started." Window closes. Press ⌘⇧R with text selected. Expected: voice reads it aloud.
 
 - [ ] **Step 4: Commit**
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt HearItTests
+  git add Bolo BoloTests
   git commit -m "feat(onboarding): welcome → accessibility → model download → ready flow"
   ```
 
@@ -2390,12 +2390,12 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 ## Task 14: Launch at Login (SMAppService)
 
 **Files:**
-- Create: `HearIt/LaunchAtLogin.swift`
-- Modify: `HearIt/Models/Settings.swift` (delete the stub from Task 12)
+- Create: `Bolo/LaunchAtLogin.swift`
+- Modify: `Bolo/Models/Settings.swift` (delete the stub from Task 12)
 
 - [ ] **Step 1: Implement `LaunchAtLogin`**
 
-  Create `HearIt/LaunchAtLogin.swift`:
+  Create `Bolo/LaunchAtLogin.swift`:
 
   ```swift
   import ServiceManagement
@@ -2412,7 +2412,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
                   try SMAppService.mainApp.unregister()
               }
           } catch {
-              NSLog("HearIt: LaunchAtLogin error: \(error)")
+              NSLog("Bolo: LaunchAtLogin error: \(error)")
           }
       }
 
@@ -2424,17 +2424,17 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
 - [ ] **Step 2: Remove the stub from Settings.swift**
 
-  Delete the stub `enum LaunchAtLogin` at the bottom of `HearIt/Models/Settings.swift` (added in Task 12 step 2). The real implementation in `HearIt/LaunchAtLogin.swift` takes its place.
+  Delete the stub `enum LaunchAtLogin` at the bottom of `Bolo/Models/Settings.swift` (added in Task 12 step 2). The real implementation in `Bolo/LaunchAtLogin.swift` takes its place.
 
 - [ ] **Step 3: Verify**
 
-  Run: `⌘R`. Open Settings → General → toggle "Launch HearIt at login" ON. Quit and reopen System Settings → General → Login Items. Expected: HearIt appears in the "Open at Login" list. Toggle off in HearIt's settings → confirm it disappears from the system list.
+  Run: `⌘R`. Open Settings → General → toggle "Launch Bolo at login" ON. Quit and reopen System Settings → General → Login Items. Expected: Bolo appears in the "Open at Login" list. Toggle off in Bolo's settings → confirm it disappears from the system list.
 
 - [ ] **Step 4: Commit**
 
   ```bash
   cd ~/Code/tts-app
-  git add HearIt
+  git add Bolo
   git commit -m "feat(login): SMAppService-backed launch-at-login"
   ```
 
@@ -2447,11 +2447,11 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 - Create: `scripts/notarize.sh`
 - Create: `docs/SETAPP.md`
 - Create: `PRIVACY.md`
-- Create: `HearIt/Resources/Assets.xcassets/AppIcon.appiconset/*.png` (app icon)
+- Create: `Bolo/Resources/Assets.xcassets/AppIcon.appiconset/*.png` (app icon)
 
 - [ ] **Step 1: Configure signing in Xcode**
 
-  Target → Signing & Capabilities → Team = your Apple Developer Team ID. Signing Certificate = Developer ID Application. Bundle Identifier = `com.virkhanna.hearit`.
+  Target → Signing & Capabilities → Team = your Apple Developer Team ID. Signing Certificate = Developer ID Application. Bundle Identifier = `com.virkhanna.bolo`.
 
 - [ ] **Step 2: Write `scripts/build.sh`**
 
@@ -2462,22 +2462,22 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
   set -euo pipefail
 
   # Builds a Release .app and packages it into a DMG.
-  # Output: build/HearIt.dmg
+  # Output: build/Bolo.dmg
 
   cd "$(dirname "$0")/.."
 
   BUILD_DIR="build"
-  ARCHIVE_PATH="$BUILD_DIR/HearIt.xcarchive"
+  ARCHIVE_PATH="$BUILD_DIR/Bolo.xcarchive"
   EXPORT_PATH="$BUILD_DIR/Export"
-  DMG_PATH="$BUILD_DIR/HearIt.dmg"
+  DMG_PATH="$BUILD_DIR/Bolo.dmg"
 
   rm -rf "$BUILD_DIR"
   mkdir -p "$BUILD_DIR"
 
   # 1. Archive
   xcodebuild archive \
-    -project HearIt.xcodeproj \
-    -scheme HearIt \
+    -project Bolo.xcodeproj \
+    -scheme Bolo \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     -destination "generic/platform=macOS"
@@ -2502,7 +2502,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
     -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist"
 
   # 3. DMG
-  hdiutil create -volname "HearIt" -srcfolder "$EXPORT_PATH/HearIt.app" -ov -format UDZO "$DMG_PATH"
+  hdiutil create -volname "Bolo" -srcfolder "$EXPORT_PATH/Bolo.app" -ov -format UDZO "$DMG_PATH"
 
   echo "Done: $DMG_PATH"
   ```
@@ -2519,15 +2519,15 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   # Notarizes the built DMG via Apple's notarytool.
   # Prereq: store your notary credentials once with:
-  #   xcrun notarytool store-credentials "hearit-notary" \
+  #   xcrun notarytool store-credentials "bolo-notary" \
   #     --apple-id you@example.com \
   #     --team-id <YOUR_TEAM_ID> \
   #     --password <app-specific-password>
 
   cd "$(dirname "$0")/.."
 
-  DMG_PATH="build/HearIt.dmg"
-  PROFILE="hearit-notary"
+  DMG_PATH="build/Bolo.dmg"
+  PROFILE="bolo-notary"
 
   if [ ! -f "$DMG_PATH" ]; then
     echo "Run scripts/build.sh first." >&2
@@ -2563,13 +2563,13 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
   ```markdown
   # Setapp Submission Notes
 
-  - **App name:** HearIt (pending final rename)
-  - **Bundle ID:** com.virkhanna.hearit
+  - **App name:** Bolo (pending final rename)
+  - **Bundle ID:** com.virkhanna.bolo
   - **Category:** Productivity
   - **Tagline:** Hear any text aloud, fully on-device.
   - **Long description (draft):**
 
-  HearIt reads any text you select aloud, in a natural AI voice that runs entirely on your Mac. Select a paragraph in Safari, an email in Mail, or a passage in a PDF — press ⌘⇧R and listen. No cloud, no accounts, no analytics. The voice model downloads once on first launch and never connects to the internet again.
+  Bolo reads any text you select aloud, in a natural AI voice that runs entirely on your Mac. Select a paragraph in Safari, an email in Mail, or a passage in a PDF — press ⌘⇧R and listen. No cloud, no accounts, no analytics. The voice model downloads once on first launch and never connects to the internet again.
 
   Built for Apple Silicon Macs. Minimum macOS 15.
 
@@ -2581,15 +2581,15 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
   Create `PRIVACY.md`:
 
   ```markdown
-  # HearIt Privacy Policy
+  # Bolo Privacy Policy
 
-  HearIt does not collect, transmit, store, or share any user data.
+  Bolo does not collect, transmit, store, or share any user data.
 
   - All text you select is processed locally on your Mac.
   - All speech synthesis runs locally via Apple's MLX framework on the Neural Engine / GPU.
-  - The only network request HearIt ever makes is the initial download of the voice model file from Hugging Face on first launch. After that, no network calls happen — ever.
+  - The only network request Bolo ever makes is the initial download of the voice model file from Hugging Face on first launch. After that, no network calls happen — ever.
   - No analytics, telemetry, crash reporting, or "anonymous usage data" is sent anywhere.
-  - HearIt has no user accounts.
+  - Bolo has no user accounts.
   ```
 
 - [ ] **Step 6: Do a dry run**
@@ -2599,7 +2599,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
   ./scripts/build.sh
   ```
 
-  Expected: `build/HearIt.dmg` exists. Open it in Finder, drag HearIt to Applications, launch — should run identically to your Xcode debug build.
+  Expected: `build/Bolo.dmg` exists. Open it in Finder, drag Bolo to Applications, launch — should run identically to your Xcode debug build.
 
   Then (when ready for actual submission):
 
@@ -2613,7 +2613,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 
   ```bash
   cd ~/Code/tts-app
-  git add scripts docs PRIVACY.md HearIt
+  git add scripts docs PRIVACY.md Bolo
   git commit -m "build: signing, notarization scripts, Setapp + privacy docs"
   ```
 
@@ -2633,7 +2633,7 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
 | macOS 15+, Apple Silicon only | Task 1 |
 | Zero network after install | Task 13 (one-time DL) + entitlements (Task 2) |
 | <50 MB idle RAM | Task 9 (idle unload) — verify with Instruments after Task 9 |
-| <20 MB binary | Naturally true — verify with `du -sh HearIt.app` after Task 15 |
+| <20 MB binary | Naturally true — verify with `du -sh Bolo.app` after Task 15 |
 | Lazy-load + 5min idle unload | Task 9 |
 | ⌘⇧R global hotkey | Task 4 |
 | Text capture (AX + clipboard fallback) | Task 5 |
@@ -2658,7 +2658,7 @@ These are explicit "engineer action items" in the plan, not lazy hand-waves. All
 
 ## Execution Handoff
 
-Plan complete and saved to `~/Code/tts-app/docs/superpowers/plans/2026-05-26-hearit-menubar-tts.md`.
+Plan complete and saved to `~/Code/tts-app/docs/superpowers/plans/2026-05-26-bolo-menubar-tts.md`.
 
 Two execution options:
 

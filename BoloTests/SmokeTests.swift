@@ -1,5 +1,5 @@
 import XCTest
-@testable import HearIt
+@testable import Bolo
 
 final class SmokeTests: XCTestCase {
     func test_smoke_passes() {

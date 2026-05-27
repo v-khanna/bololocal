@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import HearIt
+@testable import Bolo
 
 @MainActor
 final class AppDelegateTests: XCTestCase {
@@ -8,6 +8,6 @@ final class AppDelegateTests: XCTestCase {
         let delegate = AppDelegate()
         delegate.applicationDidFinishLaunching(Notification(name: .init("test")))
         XCTAssertNotNil(delegate.statusItem)
-        XCTAssertEqual(delegate.statusItem?.button?.image?.accessibilityDescription, "HearIt")
+        XCTAssertEqual(delegate.statusItem?.button?.image?.accessibilityDescription, "Bolo")
     }
 }

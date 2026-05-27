@@ -1,5 +1,5 @@
 import XCTest
-@testable import HearIt
+@testable import Bolo
 
 final class PermissionsManagerTests: XCTestCase {
     func test_isAccessibilityGranted_returnsBool() {

@@ -1,5 +1,5 @@
 import XCTest
-@testable import HearIt
+@testable import Bolo
 
 @MainActor
 final class HotkeyManagerTests: XCTestCase {

@@ -5,7 +5,7 @@ set -euo pipefail
 #
 # Prerequisite: one-time credential setup via:
 #
-#     xcrun notarytool store-credentials "hearit-notary" \
+#     xcrun notarytool store-credentials "bolo-notary" \
 #       --apple-id YOUR_APPLE_ID@example.com \
 #       --team-id YOUR_TEAM_ID \
 #       --password YOUR_APP_SPECIFIC_PASSWORD
@@ -14,8 +14,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-DMG_PATH="build/HearIt.dmg"
-PROFILE="hearit-notary"
+DMG_PATH="build/Bolo.dmg"
+PROFILE="bolo-notary"
 
 if [ ! -f "$DMG_PATH" ]; then
     echo "Error: $DMG_PATH not found. Run ./scripts/build.sh first." >&2

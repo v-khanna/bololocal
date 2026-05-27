@@ -25,7 +25,7 @@ final class Coordinator {
             return
         }
         guard let text = TextCaptureManager.captureSelectedText(), !text.isEmpty else {
-            NSLog("HearIt: nothing selected")
+            NSLog("Bolo: nothing selected")
             return
         }
         state.lastCapturedText = text

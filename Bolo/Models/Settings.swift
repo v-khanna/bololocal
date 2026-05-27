@@ -8,10 +8,10 @@ final class Settings: ObservableObject {
     static let shared = Settings()
 
     private enum Key {
-        static let language = "hearit.language"
-        static let speed = "hearit.speed"
-        static let launchAtLogin = "hearit.launchAtLogin"
-        static let hasCompletedOnboarding = "hearit.hasCompletedOnboarding"
+        static let language = "bolo.language"
+        static let speed = "bolo.speed"
+        static let launchAtLogin = "bolo.launchAtLogin"
+        static let hasCompletedOnboarding = "bolo.hasCompletedOnboarding"
     }
 
     private let defaults: UserDefaults

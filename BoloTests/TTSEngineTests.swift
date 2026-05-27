@@ -1,5 +1,5 @@
 import XCTest
-@testable import HearIt
+@testable import Bolo
 @preconcurrency import Qwen3TTS
 
 final class TTSEngineTests: XCTestCase {
@@ -24,7 +24,7 @@ final class TTSEngineTests: XCTestCase {
         do {
             try await engine.synthesize(text: "", voice: .systemDefault, speed: Speed(1.0))
             XCTFail("Should have thrown")
-        } catch HearIt.TTSError.emptyText {
+        } catch Bolo.TTSError.emptyText {
             // expected
         }
     }

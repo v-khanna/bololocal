@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import HearIt
+@testable import Bolo
 
 @MainActor
 final class PopoverControllerTests: XCTestCase {

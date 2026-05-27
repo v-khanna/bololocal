@@ -26,7 +26,7 @@ struct PopoverView: View {
         HStack {
             Image(systemName: "waveform")
                 .foregroundStyle(.secondary)
-            Text("HearIt").font(.headline)
+            Text("Bolo").font(.headline)
             Spacer()
             Button(action: onOpenSettings) {
                 Image(systemName: "gearshape").foregroundStyle(.secondary)

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Builds a Release .app and packages it into a DMG.
-# Output: build/HearIt.dmg
+# Output: build/Bolo.dmg
 #
 # Prerequisites (user must set in project.yml's settings.base.DEVELOPMENT_TEAM
 # or via environment):
@@ -35,9 +35,9 @@ EOF
 fi
 
 BUILD_DIR="build"
-ARCHIVE_PATH="$BUILD_DIR/HearIt.xcarchive"
+ARCHIVE_PATH="$BUILD_DIR/Bolo.xcarchive"
 EXPORT_PATH="$BUILD_DIR/Export"
-DMG_PATH="$BUILD_DIR/HearIt.dmg"
+DMG_PATH="$BUILD_DIR/Bolo.dmg"
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -47,8 +47,8 @@ xcodegen generate
 
 echo "→ Archiving…"
 xcodebuild archive \
-    -project HearIt.xcodeproj \
-    -scheme HearIt \
+    -project Bolo.xcodeproj \
+    -scheme Bolo \
     -configuration Release \
     -archivePath "$ARCHIVE_PATH" \
     -destination "generic/platform=macOS"
@@ -75,7 +75,7 @@ xcodebuild -exportArchive \
     -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist"
 
 echo "→ Building DMG…"
-hdiutil create -volname "HearIt" -srcfolder "$EXPORT_PATH/HearIt.app" -ov -format UDZO "$DMG_PATH"
+hdiutil create -volname "Bolo" -srcfolder "$EXPORT_PATH/Bolo.app" -ov -format UDZO "$DMG_PATH"
 
 echo ""
 echo "Done. DMG ready at $DMG_PATH"

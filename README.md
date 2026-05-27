@@ -1,4 +1,4 @@
-# HearIt (working name)
+# Bolo (working name)
 
 macOS menu bar app that reads selected text aloud in a natural AI voice.
 Fully on-device. Apple Silicon only. macOS 15+.
@@ -9,9 +9,9 @@ See [docs/superpowers/plans/](docs/superpowers/plans/) for the implementation pl
 ## Build
 
 ```bash
-xcodegen generate                  # regenerate HearIt.xcodeproj from project.yml
-xcodebuild -scheme HearIt build    # build
-xcodebuild -scheme HearIt test     # run tests
+xcodegen generate                  # regenerate Bolo.xcodeproj from project.yml
+xcodebuild -scheme Bolo build    # build
+xcodebuild -scheme Bolo test     # run tests
 ```
 
 > **Note:** Builds require `DEVELOPMENT_TEAM` to be filled in `project.yml` (under `settings.base`).

@@ -1,4 +1,4 @@
-# HearIt (working name) — Scope v0.1
+# Bolo (working name) — Scope v0.1
 
 > Working directory: `~/Code/tts-app`. Rename once the brand is decided (task #11).
 > Status: scope finalized 2026-05-26. Ready to scaffold.
@@ -29,7 +29,7 @@ The "reverse Wispr Flow."
 
 ## Locked product decisions
 - **Aesthetic:** native-stealth (NSPopover with vibrancy, SF Symbols, system font, light/dark auto)
-- **Voice picker:** curated 6–8 voices in the popover, hand-picked from the engine's full set with friendly names. "Show all voices" toggle in settings for power users.
+- **Voice picker:** ~~curated 6–8 voices~~ → **no voice picker in v1.** Qwen3-TTS exposes language selection only, one voice per language (10 languages). Popover shows a language picker (English default). Voice variety comes in v1.1 via voice cloning. Updated 2026-05-26 after discovering the real Qwen3TTS API in speech-swift takes `language:` not `voice:`.
 - **Distribution:** Setapp only (no direct download, no App Store v1)
 - **First-run:** welcome → Accessibility permission → model download with progress bar → ready. ~30 sec to first read.
 - **Engine:** Qwen3-TTS via [speech-swift](https://github.com/soniqo/speech-swift) (Apache 2.0, claimed highest quality in the toolkit, 10 languages, streaming). Kokoro available as "Fast mode" fallback.
@@ -78,6 +78,6 @@ The `TTSEngine` protocol is the load-bearing abstraction — swapping engines la
 - Chatterbox or Sesame engine swap
 
 ## Open items
-- **Name** (task #11). Working name "HearIt" — final name deferred until product is tangible.
+- **Name** (task #11). Working name "Bolo" — final name deferred until product is tangible.
 - **Domain + socials** registered after name is locked.
 - Pricing within Setapp (Setapp sets revenue share; nothing to decide unilaterally).

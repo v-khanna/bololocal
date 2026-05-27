@@ -15,7 +15,7 @@ struct SettingsView: View {
     // MARK: - General
     private var generalTab: some View {
         Form {
-            Toggle("Launch HearIt at login", isOn: $settings.launchAtLogin)
+            Toggle("Launch Bolo at login", isOn: $settings.launchAtLogin)
                 .onChange(of: settings.launchAtLogin) { _, new in
                     LaunchAtLogin.set(enabled: new)
                 }
@@ -61,7 +61,7 @@ struct SettingsView: View {
             Image(systemName: "waveform")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text("HearIt").font(.title2)
+            Text("Bolo").font(.title2)
             Text("Version \(Bundle.main.shortVersionString) (\(Bundle.main.buildNumber))")
                 .foregroundStyle(.secondary)
             Text("Reads selected text aloud, fully on-device.")

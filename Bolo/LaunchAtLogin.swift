@@ -12,7 +12,7 @@ enum LaunchAtLogin {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            NSLog("HearIt: LaunchAtLogin error: \(error)")
+            NSLog("Bolo: LaunchAtLogin error: \(error)")
         }
     }
 

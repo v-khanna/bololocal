@@ -323,6 +323,106 @@ s3gen_metadata = {
     "embedding_shape": list(embedding.shape),
 }
 
+# ───────────────────────────────────────────────────────────────────────────
+# Decoder reference (Phase 5b)
+# ───────────────────────────────────────────────────────────────────────────
+# The ConditionalDecoder is the velocity-field estimator inside the CFM
+# diffusion. The decoder is fully deterministic given its inputs (no randomness
+# inside the forward pass — randomness only enters via the noise z sampled by
+# the CFM solver outside the decoder).
+#
+# Inputs:
+#   x_t  : (B, 80, T) latent at the current ODE step
+#   mask : (B, 1, T)  float mask
+#   mu   : (B, 80, T) encoder-projected mel conditioning
+#   t    : (B,)       timestep scalars in [0, 1]
+#   spks : (B, 80)    speaker embedding
+#   cond : (B, 80, T) extra conditioning (zeros except over prompt prefix)
+#
+# We construct deterministic inputs using the already-captured encoder outputs
+# above, plus a pinned noise tensor seeded with numpy.RandomState(42) so the
+# Swift port can replay them bit-exactly.
+print("\n" + "═" * 60)
+print("Decoder reference outputs (Phase 5b)")
+print("═" * 60)
+
+# Build mu (B, 80, T) by transposing the encoder projection output (B, T, 80).
+mu_ref = h_proj.transpose(0, 2, 1)  # (B, 80, T)
+T_mu = mu_ref.shape[2]
+
+# Build encoder mask (B, 1, T). The encoder returned (B, 1, 2T) already.
+# h_masks is (B, 1, 2T) float — same T as mu_ref.
+mask_ref = h_masks.astype(mx.float32)
+assert mask_ref.shape[2] == T_mu, f"mask T {mask_ref.shape[2]} != mu T {T_mu}"
+
+# Speaker embedding: (B, 80) — broadcast across batch from gen.embedding.
+spk_ref = spk_emb_projected  # (1, 80)
+
+# Cond (B, 80, T): zeros except over the prompt prefix (matching how the CFM
+# solver concatenates prompt_feat into cond in S3Token2Mel).
+# In the real pipeline:
+#   cond = mx.zeros_like(mu)
+#   cond[:, :, : prompt_len_mel] = prompt_feat.T
+# Here we replicate that:
+prompt_feat_T = prompt_feat.transpose(0, 2, 1)  # (1, 80, 500)
+prompt_mel_len = prompt_feat_T.shape[2]
+cond_ref = mx.zeros_like(mu_ref)
+cond_ref[:, :, :prompt_mel_len] = prompt_feat_T[:, :, :min(prompt_mel_len, T_mu)]
+
+# Pinned noise — must be reproducible from Swift. Use numpy with a fixed seed.
+np.random.seed(42)
+noise_np = np.random.randn(*mu_ref.shape).astype(np.float32)
+x_t_ref = mx.array(noise_np)  # (B, 80, T)
+
+# Timestep — start of the ODE (closest to noise). Use t=0.0.
+t_ref = mx.array([0.0], dtype=mx.float32)  # (B,) with B=1
+
+print(f"  mu shape:    {mu_ref.shape}")
+print(f"  mask shape:  {mask_ref.shape}")
+print(f"  x_t shape:   {x_t_ref.shape}")
+print(f"  spks shape:  {spk_ref.shape}")
+print(f"  cond shape:  {cond_ref.shape}")
+print(f"  t value:     {t_ref.tolist()}")
+
+# Run the Python decoder. estimator is s3gen.decoder.estimator
+estimator = s3gen.decoder.estimator
+# Eval ensures weights loaded before any compute.
+mx.eval(mu_ref, mask_ref, x_t_ref, spk_ref, cond_ref, t_ref)
+velocity = estimator(x_t_ref, mask_ref, mu_ref, t_ref, spk_ref, cond_ref)
+mx.eval(velocity)
+print(f"  velocity out shape: {velocity.shape}, "
+      f"mean={float(velocity.mean()):+.5f}, std={float(velocity.std()):.5f}")
+
+# Save inputs + output for Swift to consume.
+save_raw(x_t_ref, OUTPUT_DIR / "s3gen_decoder_x_t.bin", np.float32)
+save_raw(mu_ref, OUTPUT_DIR / "s3gen_decoder_mu.bin", np.float32)
+save_raw(mask_ref, OUTPUT_DIR / "s3gen_decoder_mask.bin", np.float32)
+save_raw(spk_ref, OUTPUT_DIR / "s3gen_decoder_spks.bin", np.float32)
+save_raw(cond_ref, OUTPUT_DIR / "s3gen_decoder_cond.bin", np.float32)
+save_raw(t_ref, OUTPUT_DIR / "s3gen_decoder_t.bin", np.float32)
+save_raw(velocity, OUTPUT_DIR / "s3gen_decoder_velocity_out.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_decoder_x_t.npy", np.array(x_t_ref))
+np.save(OUTPUT_DIR / "s3gen_decoder_mu.npy", np.array(mu_ref))
+np.save(OUTPUT_DIR / "s3gen_decoder_mask.npy", np.array(mask_ref))
+np.save(OUTPUT_DIR / "s3gen_decoder_spks.npy", np.array(spk_ref))
+np.save(OUTPUT_DIR / "s3gen_decoder_cond.npy", np.array(cond_ref))
+np.save(OUTPUT_DIR / "s3gen_decoder_t.npy", np.array(t_ref))
+np.save(OUTPUT_DIR / "s3gen_decoder_velocity_out.npy", np.array(velocity))
+
+s3gen_metadata["decoder"] = {
+    "x_t_shape": list(x_t_ref.shape),
+    "mu_shape": list(mu_ref.shape),
+    "mask_shape": list(mask_ref.shape),
+    "spks_shape": list(spk_ref.shape),
+    "cond_shape": list(cond_ref.shape),
+    "t_value": [float(x) for x in t_ref.tolist()],
+    "velocity_shape": list(velocity.shape),
+    "velocity_mean": float(velocity.mean()),
+    "velocity_std": float(velocity.std()),
+    "noise_seed": 42,
+    "prompt_mel_len": int(prompt_mel_len),
+}
+
 # ── Metadata ────────────────────────────────────────────────────────────────
 metadata = {
     "test_text": TEST_TEXT,

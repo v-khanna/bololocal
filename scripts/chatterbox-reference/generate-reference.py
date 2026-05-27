@@ -474,6 +474,98 @@ s3gen_metadata["decoder"] = {
 }
 
 # ───────────────────────────────────────────────────────────────────────────
+# CFM reference (Phase 5c) — CausalConditionalCFM Euler ODE solver
+# ───────────────────────────────────────────────────────────────────────────
+# The CFM module wraps the ConditionalDecoder and runs Euler integration to
+# produce speech_feat (a mel-like tensor) from noise. Chatterbox-Turbo uses
+# `meanflow=True` and `n_timesteps=2`, so the CFM:
+#   - samples noise z ~ N(0, 1) of shape (B, 80, T)
+#   - builds t_span = linspace(0, 1, 3) = [0, 0.5, 1.0]  (no cosine reshape)
+#   - calls the decoder 2 times with (t=0, r=0.5) then (t=0.5, r=1.0)
+#   - each call uses meanflow time-mixing: t_emb = mixer(concat(t_emb, r_emb))
+#   - applies basic Euler: x <- x + (r-t) * decoder(x, mu, t, r, spks, cond)
+# No CFG in the meanflow path; the decoder bakes in the conditioning directly.
+#
+# To make this reproducible across Python ↔ Swift we externalise the initial
+# noise: numpy.random.seed(7777), generate z, then save the noise tensor as
+# `s3gen_cfm_noise.bin` and the final `speech_feat` as `s3gen_cfm_speech_feat.bin`.
+# Swift loads the pinned noise (rather than calling MLXRandom internally) so
+# the entire path is bit-deterministic.
+print("\n" + "═" * 60)
+print("CFM reference outputs (Phase 5c)")
+print("═" * 60)
+
+# Build a second S3Gen instance with meanflow=True so we get the meanflow
+# decoder variant with `time_embed_mixer`. Use the same weights dict.
+print("\nBuilding S3Token2Wav (meanflow=True) ...")
+s3gen_mf = PyS3Gen(meanflow=True)
+s3gen_mf_weights_sanitized = s3gen_mf.sanitize(s3gen_weights)
+s3gen_mf.load_weights(list(s3gen_mf_weights_sanitized.items()), strict=False)
+s3gen_mf.eval()
+print("  built meanflow s3gen and weights loaded")
+
+# Reuse mu_ref, mask_ref, spk_ref, cond_ref from the decoder section above.
+# Pin a fresh noise z (independent seed from the decoder x_t).
+np.random.seed(7777)
+cfm_noise_np = np.random.randn(*mu_ref.shape).astype(np.float32)
+cfm_noise = mx.array(cfm_noise_np)  # (B, 80, T)
+mx.eval(cfm_noise)
+print(f"  cfm_noise shape: {cfm_noise.shape}, "
+      f"mean={float(cfm_noise.mean()):+.5f}, std={float(cfm_noise.std()):.5f}")
+
+# Replicate `_basic_euler` (meanflow path: no CFG, decoder takes r).
+mf_estimator = s3gen_mf.decoder.estimator
+n_cfm_timesteps = 2
+t_span_cfm = mx.linspace(0, 1, n_cfm_timesteps + 1)
+# meanflow path does NOT apply the cosine reshape.
+print(f"  t_span: {t_span_cfm.tolist()}")
+
+x = cfm_noise
+for i in range(n_cfm_timesteps):
+    t = t_span_cfm[i : i + 1]
+    r = t_span_cfm[i + 1 : i + 2]
+    dxdt = mf_estimator(
+        x=x,
+        mask=mask_ref,
+        mu=mu_ref,
+        t=t,
+        spks=spk_ref,
+        cond=cond_ref,
+        r=r,
+    )
+    dt = r - t
+    x = x + dt * dxdt
+    mx.eval(x)
+    print(f"    step {i}: t={float(t.item()):.4f} r={float(r.item()):.4f} "
+          f"x_mean={float(x.mean()):+.5f} x_std={float(x.std()):.5f}")
+
+speech_feat = x
+mx.eval(speech_feat)
+print(f"  speech_feat shape: {speech_feat.shape}, "
+      f"mean={float(speech_feat.mean()):+.5f}, std={float(speech_feat.std()):.5f}")
+
+# Save inputs + output for Swift.
+save_raw(cfm_noise, OUTPUT_DIR / "s3gen_cfm_noise.bin", np.float32)
+save_raw(mu_ref, OUTPUT_DIR / "s3gen_cfm_mu.bin", np.float32)
+save_raw(mask_ref, OUTPUT_DIR / "s3gen_cfm_mask.bin", np.float32)
+save_raw(spk_ref, OUTPUT_DIR / "s3gen_cfm_spks.bin", np.float32)
+save_raw(cond_ref, OUTPUT_DIR / "s3gen_cfm_cond.bin", np.float32)
+save_raw(speech_feat, OUTPUT_DIR / "s3gen_cfm_speech_feat.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_cfm_noise.npy", np.array(cfm_noise))
+np.save(OUTPUT_DIR / "s3gen_cfm_speech_feat.npy", np.array(speech_feat))
+
+s3gen_metadata["cfm"] = {
+    "noise_seed": 7777,
+    "n_timesteps": n_cfm_timesteps,
+    "t_span": [float(x) for x in t_span_cfm.tolist()],
+    "meanflow": True,
+    "noise_shape": list(cfm_noise.shape),
+    "speech_feat_shape": list(speech_feat.shape),
+    "speech_feat_mean": float(speech_feat.mean()),
+    "speech_feat_std": float(speech_feat.std()),
+}
+
+# ───────────────────────────────────────────────────────────────────────────
 # Vocoder reference (Phase 5d) — HiFTGenerator (s3gen.mel2wav.*)
 # ───────────────────────────────────────────────────────────────────────────
 # The HiFTGenerator turns a mel-like feature `speech_feat` of shape (B, T, 80)

@@ -16,3 +16,7 @@ xcodebuild -scheme HearIt test     # run tests
 
 > **Note:** Builds require `DEVELOPMENT_TEAM` to be filled in `project.yml` (under `settings.base`).
 > For unsigned local builds, pass `CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO` to xcodebuild.
+
+## Release
+
+To cut a signed + notarized DMG for Setapp distribution, see [docs/RELEASE.md](docs/RELEASE.md).

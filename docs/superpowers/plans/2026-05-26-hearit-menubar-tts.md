@@ -1109,6 +1109,43 @@ This task is the biggest. It proves the entire pipeline end-to-end using the mac
 
 ---
 
+## Engine reality update (2026-05-26, post-Task 6)
+
+After Task 6 shipped, pre-research on Task 7 revealed the real Qwen3TTS API in [soniqo/speech-swift](https://github.com/soniqo/speech-swift) differs from the plan's placeholder:
+
+- **Model loading is async/throws:** `let model = try await Qwen3TTSModel.fromPretrained()` — speech-swift auto-downloads weights from Hugging Face on first call, caches locally. **Our Task 8 ModelDownloader is largely redundant** — speech-swift owns the download. We may keep a thin wrapper just to surface progress in the onboarding UI.
+- **Synthesis takes language, not voice:** `let audio = model.synthesize(text: "…", language: "english")`. The "curated 6–8 voices" scope decision is replaced with **language picker only, one voice per language** (10 languages). Voice variety deferred to v1.1.
+- **Output is raw 24kHz mono float samples**, not an AVAudioPCMBuffer. The engine must wrap samples into an AVAudioPCMBuffer for playback.
+- **Speed control is unclear** from the README — may not be a parameter on `synthesize`. If unavailable, we either drop the speed slider (v1.1 feature) or post-process the audio with AVAudioUnitVarispeed for time-stretch.
+
+Plan tasks affected: **7, 8, 9, 10, 11, 12, 13**. Each task's body below should be read as a directional spec — the implementing subagent adapts to the real speech-swift API as discovered in the working build.
+
+**Post-Task-7 discoveries (locked):**
+- SPM package name: `Qwen3Speech` (not `SpeechSwift`). Repo URL `https://github.com/soniqo/speech-swift`, product `Qwen3TTS`.
+- Real API:
+  ```swift
+  public static func fromPretrained(
+      modelId: String = "aufklarer/Qwen3-TTS-12Hz-0.6B-Base-MLX-4bit",
+      tokenizerModelId: String = "Qwen/Qwen3-TTS-Tokenizer-12Hz",
+      cacheDir: URL? = nil,
+      offlineMode: Bool = false,
+      progressHandler: ((Double, String) -> Void)? = nil
+  ) async throws -> Qwen3TTSModel
+
+  public func synthesize(
+      text: String,
+      language: String = "english",
+      speaker: String? = nil,
+      instruct: String? = nil,
+      sampling: SamplingConfig = .default,
+      languageExplicit: Bool = false
+  ) -> [Float]  // synchronous, 24kHz mono
+  ```
+- **Task 8 (ModelDownloader) is no longer needed.** speech-swift's `fromPretrained` auto-downloads and caches; its `progressHandler` callback gives us the onboarding progress UI directly. Skip Task 8 entirely; Task 9 (ModelManager) absorbs the responsibility.
+- Speed control is post-processing via `AVAudioUnitVarispeed`.
+- Default model is the MLX 4-bit quantized 0.6B variant (~500MB-class download), perfect for our lightweight goal.
+- Metal Toolchain (~687MB) is a one-time `xcodebuild -downloadComponent MetalToolchain` requirement. Document in README.
+
 ## Task 7: speech-swift Integration + Qwen3TTSEngine
 
 The pipeline now exists. Swap the mock engine for the real Qwen3 voice.

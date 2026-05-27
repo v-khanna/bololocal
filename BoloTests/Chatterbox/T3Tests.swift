@@ -53,4 +53,12 @@ final class T3Tests: XCTestCase {
             "Causal mask must prevent position 4's input from affecting outputs at positions 0-3. " +
             "Max diff was \(diffValue)")
     }
+
+    func test_mlp_outputShape_matchesInput() {
+        let cfg = ChatterboxConfig.turbo.t3
+        let mlp = T3MLP(config: cfg)
+        let input = MLXRandom.normal([1, 5, cfg.hiddenDim])
+        let output = mlp(input)
+        XCTAssertEqual(output.shape, [1, 5, cfg.hiddenDim])
+    }
 }

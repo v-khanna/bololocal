@@ -6,6 +6,9 @@ packages:
   Qwen3Speech:
     url: https://github.com/soniqo/speech-swift
     from: 0.0.9
+  mlx-swift:
+    url: https://github.com/ml-explore/mlx-swift
+    from: 0.30.0
 options:
   bundleIdPrefix: com.virkhanna
   deploymentTarget:
@@ -46,6 +49,12 @@ targets:
       - package: HotKey
       - package: Qwen3Speech
         product: Qwen3TTS
+      - package: mlx-swift
+        product: MLX
+      - package: mlx-swift
+        product: MLXNN
+      - package: mlx-swift
+        product: MLXFast
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.virkhanna.bolo
@@ -58,6 +67,8 @@ targets:
       - path: BoloTests
     dependencies:
       - target: Bolo
+      - package: mlx-swift
+        product: MLXRandom
     settings:
       base:
         ARCHS: arm64

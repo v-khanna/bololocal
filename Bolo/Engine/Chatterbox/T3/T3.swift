@@ -5,83 +5,131 @@ import MLXNN
 
 /// Full T3 backbone — text-and-speaker conditioning to speech-token logits.
 ///
-/// Architecture (GPT-2 style, 24 layers, 1024 hidden, 16 heads):
-///   wte: token embedding (vocabSize → H)
-///   wpe: position embedding (maxContextLength → H)
-///   speaker_proj: Linear(256 → H)
-///   24 × T3Block
-///   ln_f: final LayerNorm
-///   lm_head: Linear(H → 6561, no bias)
+/// Mirrors `mlx_audio.tts.models.chatterbox_turbo.models.t3.T3` (the GPT-2-based
+/// Chatterbox-Turbo backbone, NOT the LLaMA-based regular Chatterbox). Module
+/// structure matches the safetensors layout exactly:
 ///
-/// Speaker conditioning: the 256-d speaker_emb is projected to hidden dim
-/// and added to every position (broadcast across S). Future iterations may
-/// also inject t3.emotion_adv and t3.cond_prompt_speech_tokens — currently
-/// excluded; ChatterboxModel (Task 19) handles those.
+///   t3.text_emb           — Embedding(50276, 1024)
+///   t3.speech_emb         — Embedding(6563, 1024)
+///   t3.cond_enc.spkr_enc  — Linear(256, 1024, bias=True)
+///   t3.tfmr               — GPT-2 backbone (24 blocks, wte/wpe, ln_f)
+///   t3.text_head          — Linear(1024, 50276, bias=False)  [unused in v1]
+///   t3.speech_head        — Linear(1024, 6563, bias=True)
+///
+/// Forward composition (replicating `T3.prepare_input_embeds` + `tfmr` forward):
+///   1. cond_emb = cond_enc(speaker_emb, speech_emb(cond_prompt_speech_tokens))
+///   2. inputs = concat([cond_emb, text_emb(text_ids), speech_emb(speech_ids)], axis=1)
+///   3. hidden = tfmr(inputs)
+///   4. speech_logits = speech_head(hidden)  # full sequence
+///
+/// Note: `tfmr.wte` is a learned embedding present in the safetensors but unused
+/// at inference — `inputs_embeds` is built from `text_emb`/`speech_emb` instead.
+/// The wte weights are still loaded for parity with the reference.
 final class T3: Module {
+
+    // MARK: - Config
+
     let config: ChatterboxConfig.T3
 
-    @ModuleInfo(key: "wte") var tokenEmbedding: Embedding
-    @ModuleInfo(key: "wpe") var positionEmbedding: Embedding
-    @ModuleInfo(key: "speaker_proj") var speakerProj: Linear
-    @ModuleInfo(key: "h") var blocks: [T3Block]
-    @ModuleInfo(key: "ln_f") var lnFinal: LayerNorm
-    @ModuleInfo(key: "lm_head") var speechHead: Linear
+    // MARK: - Sub-modules (names match Python keys exactly)
+
+    @ModuleInfo(key: "text_emb") var textEmb: Embedding
+    @ModuleInfo(key: "speech_emb") var speechEmb: Embedding
+    @ModuleInfo(key: "cond_enc") var condEnc: T3CondEnc
+    @ModuleInfo(key: "tfmr") var tfmr: T3Tfmr
+    @ModuleInfo(key: "text_head") var textHead: Linear
+    @ModuleInfo(key: "speech_head") var speechHead: Linear
+
+    // MARK: - Init
 
     init(config: ChatterboxConfig.T3) {
         self.config = config
-        self._tokenEmbedding.wrappedValue = Embedding(
+
+        self._textEmb.wrappedValue = Embedding(
             embeddingCount: config.vocabSize,
             dimensions: config.hiddenDim
         )
-        self._positionEmbedding.wrappedValue = Embedding(
-            embeddingCount: config.maxContextLength,
+        // Speech vocab: 6563 = 6561 audio tokens + start(6561) + stop(6562) per Turbo config.json
+        self._speechEmb.wrappedValue = Embedding(
+            embeddingCount: 6563,
             dimensions: config.hiddenDim
         )
-        self._speakerProj.wrappedValue = Linear(256, config.hiddenDim, bias: true)
-        self._blocks.wrappedValue = (0..<config.numLayers).map { _ in T3Block(config: config) }
-        self._lnFinal.wrappedValue = LayerNorm(
-            dimensions: config.hiddenDim,
-            eps: Float(config.layerNormEps)
+        self._condEnc.wrappedValue = T3CondEnc(
+            speakerEmbedSize: 256,
+            hiddenDim: config.hiddenDim
         )
-        self._speechHead.wrappedValue = Linear(config.hiddenDim, 6561, bias: false)
+        self._tfmr.wrappedValue = T3Tfmr(config: config)
+        self._textHead.wrappedValue = Linear(config.hiddenDim, config.vocabSize, bias: false)
+        self._speechHead.wrappedValue = Linear(config.hiddenDim, 6563, bias: true)
+
         super.init()
     }
 
-    /// Forward pass.
-    /// - inputIDs: (B, S) integer text/speech token IDs
-    /// - speakerEmbedding: (B, 256) speaker conditioning vector (from conds.safetensors t3.speaker_emb)
-    /// - cache: optional array of one T3Cache per layer (nil for prefill / non-incremental)
-    /// Returns: (B, S, 6561) logits over the speech codebook.
-    func callAsFunction(
-        inputIDs: MLXArray,
+    // MARK: - Forward helpers
+
+    /// Build the prefill input embeddings:
+    /// `[cond_spkr | (optional) cond_prompt_speech_emb | text_emb | speech_emb]`.
+    ///
+    /// - Parameters:
+    ///   - textTokens: `(B, T_text)` int32 token IDs.
+    ///   - speechTokens: `(B, T_speech)` int32 speech token IDs (typically a single
+    ///     `[start_speech_token]` for the prefill forward pass).
+    ///   - speakerEmbedding: `(B, 256)` speaker x-vector.
+    ///   - condPromptSpeechTokens: optional `(B, T_prompt)` speech-token prompt
+    ///     for voice cloning (375 tokens in v1).
+    /// - Returns: tuple of `(inputsEmbeds: (B, L, H), condLen: Int)` where
+    ///   `L = condLen + textTokens.shape[1] + speechTokens.shape[1]`.
+    func prepareInputEmbeds(
+        textTokens: MLXArray,
+        speechTokens: MLXArray,
         speakerEmbedding: MLXArray,
-        cache: [T3Cache]?
+        condPromptSpeechTokens: MLXArray? = nil
+    ) -> (inputsEmbeds: MLXArray, condLen: Int) {
+        // Conditioning prefix
+        let promptEmb: MLXArray? = condPromptSpeechTokens.map { speechEmb($0) }
+        let condEmb = condEnc(speakerEmb: speakerEmbedding, condPromptSpeechEmb: promptEmb)
+
+        // Token embeddings
+        let textE = textEmb(textTokens)
+        let speechE = speechEmb(speechTokens)
+
+        let inputs = concatenated([condEmb, textE, speechE], axis: 1)
+        return (inputs, condEmb.shape[1])
+    }
+
+    // MARK: - Forward
+
+    /// Single forward pass over a pre-built input-embedding sequence.
+    ///
+    /// - Parameters:
+    ///   - inputsEmbeds: `(B, L, H)` (built via `prepareInputEmbeds`).
+    ///   - cacheOffset: position offset for the GPT-2 wpe lookup.
+    ///   - caches: optional KV caches, one per block, for incremental decoding.
+    /// - Returns: `(B, L, 6563)` speech logits over the entire input sequence.
+    ///   The caller selects the last position for next-token prediction.
+    func forwardEmbeds(
+        inputsEmbeds: MLXArray,
+        cacheOffset: Int = 0,
+        caches: [T3Cache]? = nil
     ) -> MLXArray {
-        let B = inputIDs.shape[0]
-        let S = inputIDs.shape[1]
+        let hidden = tfmr(inputsEmbeds: inputsEmbeds, cacheOffset: cacheOffset, caches: caches)
+        return speechHead(hidden)
+    }
 
-        let tokenEmb = tokenEmbedding(inputIDs)  // (B, S, H)
-
-        // Build position IDs [0, 1, ..., S-1] broadcast across batch
-        let posIDs = MLXArray(0..<S).reshaped([1, S])
-        let broadcastPos = broadcast(posIDs, to: [B, S])
-        let posEmb = positionEmbedding(broadcastPos)  // (B, S, H)
-
-        // Project speaker embedding (B, 256) → (B, H), broadcast to all positions
-        let spk = speakerProj(speakerEmbedding)  // (B, H)
-        let spkBroadcast = spk.reshaped([B, 1, config.hiddenDim])  // (B, 1, H)
-
-        var h = tokenEmb + posEmb + spkBroadcast  // (B, S, H) via broadcasting
-
-        // Causal mask only for non-cached forward (full-sequence prefill)
-        let mask: MLXArray? = (cache == nil) ? T3Attention.causalMask(seqLen: S) : nil
-
-        for (i, block) in blocks.enumerated() {
-            let c: Any? = cache?[i]
-            h = block(h, mask: mask, cache: c)
-        }
-
-        h = lnFinal(h)
-        return speechHead(h)  // (B, S, 6561)
+    /// Convenience: build inputs and run the backbone in one call.
+    func callAsFunction(
+        textTokens: MLXArray,
+        speechTokens: MLXArray,
+        speakerEmbedding: MLXArray,
+        condPromptSpeechTokens: MLXArray? = nil,
+        caches: [T3Cache]? = nil
+    ) -> MLXArray {
+        let (inputs, _) = prepareInputEmbeds(
+            textTokens: textTokens,
+            speechTokens: speechTokens,
+            speakerEmbedding: speakerEmbedding,
+            condPromptSpeechTokens: condPromptSpeechTokens
+        )
+        return forwardEmbeds(inputsEmbeds: inputs, caches: caches)
     }
 }

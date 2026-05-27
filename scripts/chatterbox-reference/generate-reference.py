@@ -1,159 +1,223 @@
 #!/usr/bin/env python3
 # scripts/chatterbox-reference/generate-reference.py
-# Generates reference outputs from the Python mlx-audio implementation.
-# Saves intermediate activations + final audio for later Swift port comparison.
 #
-# DO NOT RUN as part of Task 1 — downloads 2.99 GB on first run.
-# Run manually once model weights are needed (Phase 4, Task 13).
+# Generates reference outputs from the Python mlx-audio chatterbox_turbo
+# implementation for layer-by-layer parity verification of the Swift port.
+#
+# Outputs (saved to ./reference-outputs/):
+#   text_tokens.npy              - tokenized text (int32, shape [1, T])
+#   t3_cond_spk_emb.npy          - 256-d speaker embedding from conds.safetensors
+#   t3_cond_prompt_tokens.npy    - 375-token speech prompt from conds
+#   tfmr_inputs_embeds.npy       - [cond | text | speech_start] before wpe (B,L,1024)
+#   tfmr_after_wpe.npy           - inputs_embeds + wpe (B,L,1024) prefill input to block 0
+#   tfmr_block_0_out.npy         - prefill output of GPT-2 block 0 (B,L,1024)
+#   tfmr_block_12_out.npy        - prefill output of GPT-2 block 12 (B,L,1024)
+#   tfmr_block_23_out.npy        - prefill output of GPT-2 block 23 (B,L,1024)
+#   tfmr_ln_f_out.npy            - final layer norm output, prefill (B,L,1024)
+#   speech_logits_first.npy      - speech_head(last hidden) BEFORE sampling (B, 6563)
+#   speech_tokens.npy            - generated speech tokens (int32, shape [1, N])
+#   metadata.json
+#
+# This script uses chatterbox_turbo.models.t3.T3 directly (GPT-2 backbone),
+# bypasses the high-level ChatterboxTurboTTS class (which requires gated repo
+# access), and loads weights directly from mlx-community/chatterbox-turbo-fp16.
 #
 # Usage:
 #   source venv/bin/activate
 #   python generate-reference.py
 
-import os
 import json
-import numpy as np
 from pathlib import Path
 
 import mlx.core as mx
-from mlx_audio.tts.models.chatterbox.chatterbox import Model
+import numpy as np
+from safetensors import safe_open
+from transformers import AutoTokenizer
 
-OUTPUT_DIR = Path(__file__).parent / "reference-outputs"
+from mlx_audio.tts.models.chatterbox_turbo.models.t3 import T3
+from mlx_audio.tts.models.chatterbox_turbo.models.t3.t3_config import T3Config
+from mlx_audio.tts.models.chatterbox_turbo.models.t3.cond_enc import T3Cond
+
+
+def save_raw(arr, path: Path, dtype):
+    """Save an MLX or NumPy array as raw little-endian bytes (no header).
+    Also saves a `.shape.json` sidecar with shape + dtype for Swift to parse."""
+    np_arr = np.array(arr).astype(dtype)
+    np_arr.tofile(path)
+    with open(path.with_suffix(path.suffix + ".shape.json"), "w") as f:
+        json.dump({"shape": list(np_arr.shape), "dtype": str(np_arr.dtype)}, f)
+
+# ── Paths ───────────────────────────────────────────────────────────────────
+SCRIPT_DIR = Path(__file__).parent
+OUTPUT_DIR = SCRIPT_DIR / "reference-outputs"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-# Fixed inputs for reproducibility — same text every time.
-# Chatterbox-Turbo uses reference audio for voice conditioning, not a speaker_id.
-# When loaded from the mlx-community repo, conds.safetensors provides a default
-# built-in voice — no reference audio clip is required.
+WEIGHTS_PATH = (
+    Path.home() / ".cache/huggingface/hub"
+    / "models--mlx-community--chatterbox-turbo-fp16"
+    / "snapshots/b2d0a13aa7cfff0a06d9acb247ae91c8f19a6d75"
+    / "model.safetensors"
+)
+CONDS_PATH = SCRIPT_DIR.parent.parent / "Bolo/Engine/Chatterbox/Resources/conds.safetensors"
+TOKENIZER_DIR = SCRIPT_DIR.parent.parent / "Bolo/Engine/Chatterbox/Resources"
+
+# ── Inputs (fixed for reproducibility) ───────────────────────────────────────
 TEST_TEXT = "Hello world, this is a test of the Chatterbox text to speech system."
-
-# Fixed generation parameters for reproducibility
+SEED = 42
 GEN_PARAMS = dict(
-    exaggeration=0.1,
-    cfg_weight=0.5,
     temperature=0.8,
+    top_k=1000,
+    top_p=0.95,
     repetition_penalty=1.2,
-    min_p=0.05,
-    top_p=1.0,
-    max_new_tokens=1000,
+    max_gen_len=40,
 )
 
-MODEL_REPO = "mlx-community/chatterbox-turbo-fp16"
+# ── Load T3 weights ─────────────────────────────────────────────────────────
+print(f"Loading T3 weights from {WEIGHTS_PATH} ...")
+weights = {}
+with safe_open(str(WEIGHTS_PATH), framework="mlx") as f:
+    for k in f.keys():
+        if k.startswith("t3."):
+            weights[k[3:]] = f.get_tensor(k)
+print(f"  loaded {len(weights)} T3 parameters")
 
-print(f"Loading Chatterbox-Turbo from {MODEL_REPO} ...")
-print("(First run downloads ~2.99 GB; subsequent runs use HF cache at ~/.cache/huggingface/hub/)")
-model = Model.from_pretrained(MODEL_REPO)
-model.eval()
+# ── Build T3 model ──────────────────────────────────────────────────────────
+print("\nBuilding T3 (chatterbox_turbo, GPT-2 backbone) ...")
+hp = T3Config()
+t3 = T3(hp=hp)
+t3.load_weights(list(weights.items()), strict=True)
+t3.eval()
 
-# ── Text tokenization ───────────────────────────────────────────────────────
+# ── Load conditionals ───────────────────────────────────────────────────────
+print(f"\nLoading conditionals from {CONDS_PATH} ...")
+with safe_open(str(CONDS_PATH), framework="mlx") as f:
+    spk_emb = f.get_tensor("t3.speaker_emb")  # (1, 256)
+    cond_prompt_tokens = f.get_tensor("t3.cond_prompt_speech_tokens")  # (1, 375) int32
+print(f"  speaker_emb: {spk_emb.shape}")
+print(f"  cond_prompt_speech_tokens: {cond_prompt_tokens.shape}")
+
+t3_cond = T3Cond(
+    speaker_emb=spk_emb,
+    clap_emb=None,
+    cond_prompt_speech_tokens=cond_prompt_tokens,
+    cond_prompt_speech_emb=None,
+    emotion_adv=None,
+)
+
+np.save(OUTPUT_DIR / "t3_cond_spk_emb.npy", np.array(spk_emb))
+np.save(OUTPUT_DIR / "t3_cond_prompt_tokens.npy", np.array(cond_prompt_tokens))
+save_raw(spk_emb, OUTPUT_DIR / "t3_cond_spk_emb.bin", np.float32)
+save_raw(cond_prompt_tokens, OUTPUT_DIR / "t3_cond_prompt_tokens.bin", np.int32)
+
+# ── Tokenize text ───────────────────────────────────────────────────────────
 print(f"\nTokenizing: {TEST_TEXT!r}")
-from mlx_audio.tts.models.chatterbox.chatterbox import punc_norm
-normalized_text = punc_norm(TEST_TEXT)
-text_tokens = model.tokenizer.text_to_tokens(normalized_text)  # shape: (1, seq_len)
+tok = AutoTokenizer.from_pretrained(str(TOKENIZER_DIR))
+out = tok(TEST_TEXT, return_tensors="np")
+text_tokens = mx.array(out.input_ids)
+print(f"  text_tokens: {text_tokens.shape} = {text_tokens[0].tolist()}")
 np.save(OUTPUT_DIR / "text_tokens.npy", np.array(text_tokens))
-print(f"  text_tokens: {text_tokens.shape}")
+save_raw(text_tokens, OUTPUT_DIR / "text_tokens.bin", np.int32)
 
-# ── Conditionals (default built-in voice from conds.safetensors) ────────────
-print("\nLoading built-in voice conditionals (from conds.safetensors in model dir)...")
-if model._conds is None:
-    raise RuntimeError(
-        "model._conds is None — the model directory did not contain conds.safetensors. "
-        "Supply a reference audio clip via model.prepare_conditionals() instead."
-    )
-conds = model._conds
+# ── Capture inputs_embeds for prefill (replicate inference_turbo step 1) ────
+print("\nCapturing prefill inputs_embeds ...")
+B = text_tokens.shape[0]
+speech_start = mx.ones((B, 1), dtype=mx.int32) * hp.start_speech_token  # 6561
 
-# Save T3 conditioning tensors
-t3_cond = conds.t3
-np.save(OUTPUT_DIR / "t3_cond_spk_emb.npy", np.array(t3_cond.speaker_emb))
-np.save(OUTPUT_DIR / "t3_cond_clap_emb.npy", np.array(t3_cond.clap_emb))
-np.save(OUTPUT_DIR / "t3_cond_emotion_adv.npy", np.array(t3_cond.emotion_adv))
-print(f"  t3_cond.speaker_emb: {t3_cond.speaker_emb.shape}")
-print(f"  t3_cond.clap_emb: {t3_cond.clap_emb.shape}")
-print(f"  t3_cond.emotion_adv: {t3_cond.emotion_adv.shape}")
-
-# ── T3 backbone: text tokens → speech tokens ────────────────────────────────
-print("\nRunning T3 backbone (text tokens → speech tokens)...")
-
-# Replicate exactly what Model.generate does before calling t3.inference
-sot = model.t3.hp.start_text_token
-eot = model.t3.hp.stop_text_token
-text_tokens_cfg = mx.concatenate([text_tokens, text_tokens], axis=0)  # CFG pair
-sot_tokens = mx.full((text_tokens_cfg.shape[0], 1), sot, dtype=mx.int32)
-eot_tokens = mx.full((text_tokens_cfg.shape[0], 1), eot, dtype=mx.int32)
-text_tokens_padded = mx.concatenate([sot_tokens, text_tokens_cfg, eot_tokens], axis=1)
-
-np.save(OUTPUT_DIR / "text_tokens_padded.npy", np.array(text_tokens_padded))
-
-speech_tokens_raw = model.t3.inference(
+inputs_embeds, len_cond = t3.prepare_input_embeds(
     t3_cond=t3_cond,
-    text_tokens=text_tokens_padded,
-    max_new_tokens=GEN_PARAMS["max_new_tokens"],
-    temperature=GEN_PARAMS["temperature"],
-    cfg_weight=GEN_PARAMS["cfg_weight"],
-    repetition_penalty=GEN_PARAMS["repetition_penalty"],
-    min_p=GEN_PARAMS["min_p"],
-    top_p=GEN_PARAMS["top_p"],
+    text_tokens=text_tokens,
+    speech_tokens=speech_start,
 )
-mx.eval(speech_tokens_raw)
-np.save(OUTPUT_DIR / "speech_tokens_raw.npy", np.array(speech_tokens_raw))
-print(f"  speech_tokens_raw: {speech_tokens_raw.shape}")
+mx.eval(inputs_embeds)
+print(f"  inputs_embeds: {inputs_embeds.shape}  (cond_len={len_cond})")
+np.save(OUTPUT_DIR / "tfmr_inputs_embeds.npy", np.array(inputs_embeds))
+save_raw(inputs_embeds, OUTPUT_DIR / "tfmr_inputs_embeds.bin", np.float32)
 
-# Post-process: extract conditional batch, drop invalid tokens (mirrors Model.generate)
-from mlx_audio.tts.models.chatterbox.chatterbox import drop_invalid_tokens, SPEECH_VOCAB_SIZE
-speech_tokens = speech_tokens_raw[0:1]  # first of CFG pair
-speech_tokens = drop_invalid_tokens(speech_tokens)
-mask = speech_tokens < SPEECH_VOCAB_SIZE
-valid_count = int(mx.sum(mask.astype(mx.int32)))
-sorted_indices = mx.argsort(-mask.astype(mx.int32))
-valid_indices = sorted_indices[:valid_count]
-speech_tokens = mx.take(speech_tokens, valid_indices)
-speech_tokens = mx.expand_dims(speech_tokens, 0)
+# ── Replicate GPT-2 prefill forward, capturing intermediate activations ────
+print("\nManual GPT-2 forward pass to capture intermediates ...")
+tfmr = t3.tfmr
+B_, T_, _ = inputs_embeds.shape
+
+# wpe: position embedding for positions [0..T_-1] (prefill, no cache offset)
+positions = mx.arange(0, T_)
+position_embeds = tfmr.wpe(positions)
+h = inputs_embeds + position_embeds
+mx.eval(h)
+np.save(OUTPUT_DIR / "tfmr_after_wpe.npy", np.array(h))
+save_raw(h, OUTPUT_DIR / "tfmr_after_wpe.bin", np.float32)
+print(f"  after wpe: {h.shape}")
+
+# Manually iterate blocks, saving outputs at 0, 12, 23
+from mlx_lm.models.cache import KVCache
+caches = [KVCache() for _ in range(len(tfmr.h))]
+
+for i, block in enumerate(tfmr.h):
+    h, _ = block(h, attention_mask=None, cache=caches[i])
+    if i in (0, 12, 23):
+        mx.eval(h)
+        np.save(OUTPUT_DIR / f"tfmr_block_{i}_out.npy", np.array(h))
+        save_raw(h, OUTPUT_DIR / f"tfmr_block_{i}_out.bin", np.float32)
+        print(f"  block {i:>2} out: {h.shape}, mean={h.mean().item():+.5f}, std={h.std().item():.5f}")
+
+h = tfmr.ln_f(h)
+mx.eval(h)
+np.save(OUTPUT_DIR / "tfmr_ln_f_out.npy", np.array(h))
+save_raw(h, OUTPUT_DIR / "tfmr_ln_f_out.bin", np.float32)
+print(f"  after ln_f: {h.shape}, mean={h.mean().item():+.5f}, std={h.std().item():.5f}")
+
+# ── First speech logits (the model's first-token prediction) ────────────────
+speech_logits_first = t3.speech_head(h[:, -1:, :])  # (B, 1, 6563)
+mx.eval(speech_logits_first)
+speech_logits_first_2d = speech_logits_first.squeeze(1)  # (B, 6563)
+np.save(OUTPUT_DIR / "speech_logits_first.npy", np.array(speech_logits_first_2d))
+save_raw(speech_logits_first_2d, OUTPUT_DIR / "speech_logits_first.bin", np.float32)
+argmax_first = int(mx.argmax(speech_logits_first_2d[0]).item())
+print(f"  speech_logits_first: {speech_logits_first_2d.shape}")
+print(f"    argmax = {argmax_first}, top-1 logit = {speech_logits_first_2d[0, argmax_first].item():.4f}")
+
+# ── Full inference for end-to-end reference ─────────────────────────────────
+print("\nRunning full t3.inference_turbo ...")
+mx.random.seed(SEED)
+speech_tokens = t3.inference_turbo(
+    t3_cond=t3_cond,
+    text_tokens=text_tokens,
+    **GEN_PARAMS,
+)
 mx.eval(speech_tokens)
+print(f"  speech_tokens: {speech_tokens.shape}")
+print(f"  first 8: {speech_tokens[0, :8].tolist()}")
 np.save(OUTPUT_DIR / "speech_tokens.npy", np.array(speech_tokens))
-print(f"  speech_tokens (post-filter): {speech_tokens.shape}")
-print(f"  speech_tokens first 8: {speech_tokens[0, :8].tolist()}")
-
-# ── S3Gen decoder: speech tokens → waveform ─────────────────────────────────
-print("\nRunning S3Gen decoder (speech tokens → waveform)...")
-
-# Run flow_inference separately so we can capture the mel/speech_feat
-speech_feat = model.s3gen.flow_inference(
-    speech_tokens=speech_tokens,
-    ref_dict=conds.gen,
-    finalize=True,
-)
-mx.eval(speech_feat)
-np.save(OUTPUT_DIR / "speech_feat.npy", np.array(speech_feat))
-print(f"  speech_feat (mel-like): {speech_feat.shape}")
-
-# Run hift_inference to get the waveform from speech_feat
-wav = model.s3gen.hift_inference(speech_feat=speech_feat)
-mx.eval(wav)
-
-# Flatten to 1D
-if wav.ndim == 2:
-    wav = wav.squeeze(0)
-
-np.save(OUTPUT_DIR / "audio_samples.npy", np.array(wav))
-print(f"  audio_samples: {wav.shape}  (sample_rate=24000)")
+save_raw(speech_tokens, OUTPUT_DIR / "speech_tokens.bin", np.int32)
 
 # ── Metadata ────────────────────────────────────────────────────────────────
 metadata = {
     "test_text": TEST_TEXT,
-    "model_repo": MODEL_REPO,
+    "seed": SEED,
     "gen_params": GEN_PARAMS,
+    "model_repo": "mlx-community/chatterbox-turbo-fp16",
+    "weights_path": str(WEIGHTS_PATH),
     "text_tokens_shape": list(text_tokens.shape),
+    "text_tokens": [int(x) for x in np.array(text_tokens[0])],
+    "len_cond": int(len_cond),
+    "prefill_seq_len": int(T_),
+    "inputs_embeds_shape": list(inputs_embeds.shape),
     "speech_tokens_shape": list(speech_tokens.shape),
     "speech_tokens_first_8": [int(x) for x in np.array(speech_tokens[0, :8])],
-    "speech_feat_shape": list(speech_feat.shape),
-    "audio_sample_rate": 24000,
-    "audio_num_samples": int(wav.shape[-1]),
+    "speech_logits_first_argmax": argmax_first,
+    "speech_logits_first_top1_logit": float(speech_logits_first_2d[0, argmax_first].item()),
+    "t3_config": {
+        "start_text_token": hp.start_text_token,
+        "stop_text_token": hp.stop_text_token,
+        "text_tokens_dict_size": hp.text_tokens_dict_size,
+        "start_speech_token": hp.start_speech_token,
+        "stop_speech_token": hp.stop_speech_token,
+        "speech_tokens_dict_size": hp.speech_tokens_dict_size,
+        "speaker_embed_size": hp.speaker_embed_size,
+    },
 }
 with open(OUTPUT_DIR / "metadata.json", "w") as f:
     json.dump(metadata, f, indent=2)
 
 print(f"\nDone. Reference outputs saved to {OUTPUT_DIR}/")
-print(f"  text_tokens:          {text_tokens.shape}")
-print(f"  speech_tokens:        {speech_tokens.shape}")
-print(f"  speech_feat:          {speech_feat.shape}")
-print(f"  audio_samples:        {wav.shape}  ({wav.shape[0] / 24000:.2f}s at 24 kHz)")
+for p in sorted(OUTPUT_DIR.iterdir()):
+    print(f"  {p.name}")

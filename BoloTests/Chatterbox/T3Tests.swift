@@ -61,4 +61,13 @@ final class T3Tests: XCTestCase {
         let output = mlp(input)
         XCTAssertEqual(output.shape, [1, 5, cfg.hiddenDim])
     }
+
+    func test_block_outputShape_matchesInput() {
+        let cfg = ChatterboxConfig.turbo.t3
+        let block = T3Block(config: cfg)
+        let input = MLXRandom.normal([1, 5, cfg.hiddenDim])
+        let mask = T3Attention.causalMask(seqLen: 5)
+        let output = block(input, mask: mask, cache: nil)
+        XCTAssertEqual(output.shape, [1, 5, cfg.hiddenDim])
+    }
 }

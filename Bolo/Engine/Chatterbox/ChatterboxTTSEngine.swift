@@ -113,8 +113,14 @@ actor ChatterboxTTSEngine: TTSEngine {
         let varispeed = AVAudioUnitVarispeed()
         engine.attach(player)
         engine.attach(varispeed)
+        // Varispeed is a time-stretcher, not a format converter. Its input and output
+        // must be the same format (24 kHz mono float32 from Chatterbox). The mainMixerNode
+        // handles the sample-rate + channel-count conversion to the system output format
+        // (typically 48 kHz stereo). Passing format: nil on the second connect makes the
+        // engine try to make Varispeed produce 48 kHz stereo, which fails with -10868
+        // (kAudioUnitErr_FormatNotSupported).
         engine.connect(player, to: varispeed, format: format)
-        engine.connect(varispeed, to: engine.mainMixerNode, format: nil)
+        engine.connect(varispeed, to: engine.mainMixerNode, format: format)
         self.engine = engine
         self.playerNode = player
         self.varispeedNode = varispeed

@@ -25,7 +25,11 @@ import MLXRandom
 ///   T3 currently has no KV-cache hooked up to attention, so generation does
 ///   N full forward passes (O(N²) wall time). This is acceptable for a
 ///   correctness gate; performance work lands in a later phase.
-final class ChatterboxPipeline {
+// ChatterboxPipeline is used exclusively through ChatterboxTTSEngine (an actor),
+// which serialises all access. The sub-modules (T3, S3Gen) inherit from MLXNN.Module
+// and are not Sendable; @unchecked Sendable is safe here because the actor guarantee
+// prevents concurrent access.
+final class ChatterboxPipeline: @unchecked Sendable {
 
     // MARK: - Sub-modules and conditioning
 

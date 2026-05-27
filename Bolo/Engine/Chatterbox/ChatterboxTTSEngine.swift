@@ -9,13 +9,24 @@ import AVFoundation
 /// Model lifecycle is owned externally by ModelManager; this actor receives a
 /// `modelProvider` closure and calls it on each synthesize.
 ///
-/// Phases 4-6 of the plan fill in the real pipeline. This file currently stubs
-/// synthesize to throw — verifying the protocol conformance and integration
-/// surface compile cleanly before any inference code lands.
+/// v1 Notes:
+/// - `voice: VoiceID` is currently unused. Chatterbox v1 ships a single preset
+///   voice baked into `conds.safetensors`. Future phases will add voice cloning.
+/// - `speed: Speed` is applied post-hoc via `AVAudioUnitVarispeed.rate`, same
+///   pattern as `Qwen3TTSEngine`.
+/// - Sample rate is 24 kHz mono (matching Chatterbox-Turbo's vocoder output).
 actor ChatterboxTTSEngine: TTSEngine {
-    private let modelProvider: @Sendable () async throws -> ChatterboxModel
+    private let modelProvider: @Sendable () async throws -> ChatterboxPipeline
 
-    init(modelProvider: @escaping @Sendable () async throws -> ChatterboxModel) {
+    // Audio playback graph — created on first synthesize, reused across calls.
+    private var engine: AVAudioEngine?
+    private var playerNode: AVAudioPlayerNode?
+    private var varispeedNode: AVAudioUnitVarispeed?
+
+    /// Sample rate produced by ChatterboxPipeline's vocoder.
+    private static let sampleRate: Double = 24_000
+
+    init(modelProvider: @escaping @Sendable () async throws -> ChatterboxPipeline) {
         self.modelProvider = modelProvider
     }
 
@@ -25,17 +36,88 @@ actor ChatterboxTTSEngine: TTSEngine {
     }
 
     private func _synthesize(text: String, voice: VoiceID, speed: Speed) async throws {
-        // Phases 4-6 (Tasks 8-20) implement the real pipeline. Stub for now.
-        throw TTSError.synthesisFailed("ChatterboxTTSEngine: not implemented yet")
+        let pipeline = try await modelProvider()
+
+        // voice is unused in v1 — Chatterbox has one preset voice.
+        // TODO(Phase 7+): pass voice clone reference audio when voice cloning lands.
+        let samples: [Float] = try await pipeline.generate(text: text)
+
+        guard !samples.isEmpty else {
+            throw TTSError.synthesisFailed("ChatterboxPipeline returned 0 samples")
+        }
+
+        try await play(samples: samples, sampleRate: Self.sampleRate, speed: speed)
     }
 
     nonisolated func stop() {
-        // Phase 6 (Task 20): stop AVAudioEngine playback.
+        Task { await self._stop() }
     }
-}
 
-/// Top-level model container — Tokenizer + SpeakerEmbeddings + T3 + S3Gen + Vocoder.
-/// Populated in Phase 6 (Task 19). Empty struct for the stub so ChatterboxTTSEngine compiles.
-struct ChatterboxModel: Sendable {
-    // Populated in later tasks.
+    private func _stop() {
+        playerNode?.stop()
+        engine?.stop()
+    }
+
+    // MARK: - Playback
+
+    private func play(samples: [Float], sampleRate: Double, speed: Speed) async throws {
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: 1,
+            interleaved: false
+        ) else {
+            throw TTSError.playbackFailed("Could not construct AVAudioFormat at \(sampleRate)Hz mono")
+        }
+
+        guard let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        ) else {
+            throw TTSError.playbackFailed("Could not allocate PCM buffer for \(samples.count) frames")
+        }
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        if let dst = buffer.floatChannelData?[0] {
+            samples.withUnsafeBufferPointer { src in
+                dst.update(from: src.baseAddress!, count: samples.count)
+            }
+        }
+
+        let (engine, player, varispeed) = setupGraph(format: format)
+        varispeed.rate = Float(speed.value)
+
+        if !engine.isRunning {
+            do {
+                try engine.start()
+            } catch {
+                throw TTSError.playbackFailed("AVAudioEngine.start failed: \(error)")
+            }
+        }
+        player.play()
+
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
+                cont.resume()
+            }
+        }
+    }
+
+    private func setupGraph(
+        format: AVAudioFormat
+    ) -> (AVAudioEngine, AVAudioPlayerNode, AVAudioUnitVarispeed) {
+        if let engine, let player = playerNode, let varispeed = varispeedNode {
+            return (engine, player, varispeed)
+        }
+        let engine = AVAudioEngine()
+        let player = AVAudioPlayerNode()
+        let varispeed = AVAudioUnitVarispeed()
+        engine.attach(player)
+        engine.attach(varispeed)
+        engine.connect(player, to: varispeed, format: format)
+        engine.connect(varispeed, to: engine.mainMixerNode, format: nil)
+        self.engine = engine
+        self.playerNode = player
+        self.varispeedNode = varispeed
+        return (engine, player, varispeed)
+    }
 }

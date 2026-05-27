@@ -107,6 +107,156 @@ struct EnTokenizer: Sendable {
     }
 }
 
+// MARK: - BPE encode / decode
+
+extension EnTokenizer {
+
+    /// Encode UTF-8 text to BPE token IDs.
+    /// Reference: GPT-2's tokenizer (https://github.com/openai/gpt-2/blob/master/src/encoder.py)
+    func encode(_ text: String) -> [Int] {
+        let preTokenized = byteLevelPreTokenize(text)
+        var result: [Int] = []
+        for word in preTokenized {
+            let bpeTokens = bpe(word)
+            for token in bpeTokens {
+                if let id = vocab[token] {
+                    result.append(id)
+                } else {
+                    // Fallback: byte-by-byte using byte-to-unicode mapping
+                    for byte in token.utf8 {
+                        let byteString = String(Self.byteToUnicode[Int(byte)])
+                        if let id = vocab[byteString] {
+                            result.append(id)
+                        }
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    /// Decode token IDs back to text.
+    func decode(_ tokens: [Int]) -> String {
+        let pieces = tokens.compactMap { inverseVocab[$0] }
+        let joined = pieces.joined()
+        return byteLevelDecode(joined)
+    }
+
+    // MARK: - GPT-2 byte-level pre-tokenization
+
+    /// Split text into pre-tokens via GPT-2's regex pattern, then byte-level encode each.
+    private func byteLevelPreTokenize(_ text: String) -> [String] {
+        // GPT-2 regex from openai/gpt-2/blob/master/src/encoder.py
+        // Matches contractions, words, numbers, runs of punctuation, and whitespace runs
+        let pattern = #"'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return [text]
+        }
+        let ns = text as NSString
+        let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
+        return matches.map { ns.substring(with: $0.range) }.map(byteLevelEncode)
+    }
+
+    /// Map a string's UTF-8 bytes through the byte-to-unicode table.
+    private func byteLevelEncode(_ text: String) -> String {
+        var result = ""
+        for byte in text.utf8 {
+            result.append(Self.byteToUnicode[Int(byte)])
+        }
+        return result
+    }
+
+    /// Inverse of byteLevelEncode for decode().
+    private func byteLevelDecode(_ text: String) -> String {
+        var bytes: [UInt8] = []
+        for scalar in text.unicodeScalars {
+            if let byte = Self.unicodeToByte[scalar] {
+                bytes.append(byte)
+            }
+        }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+
+    // MARK: - GPT-2 byte-to-unicode mapping
+
+    /// Maps the 256 byte values to printable unicode characters.
+    /// Printable bytes (!..~, ¡..¬, ®..ÿ) map to themselves;
+    /// non-printable bytes map to chars 256+.
+    /// Reproduces openai/gpt-2/blob/master/src/encoder.py bytes_to_unicode().
+    static let byteToUnicode: [Character] = {
+        var bs: [Int] = Array(33...126) + Array(161...172) + Array(174...255)
+        var cs: [Int] = bs
+        var n = 0
+        for b in 0..<256 {
+            if !bs.contains(b) {
+                bs.append(b)
+                cs.append(256 + n)
+                n += 1
+            }
+        }
+        var table = [Character](repeating: " ", count: 256)
+        for i in 0..<bs.count {
+            guard let scalar = Unicode.Scalar(cs[i]) else { continue }
+            table[bs[i]] = Character(scalar)
+        }
+        return table
+    }()
+
+    /// Inverse map for decode.
+    static let unicodeToByte: [Unicode.Scalar: UInt8] = {
+        var result: [Unicode.Scalar: UInt8] = [:]
+        for byte in 0..<256 {
+            let char = byteToUnicode[byte]
+            if let scalar = char.unicodeScalars.first {
+                result[scalar] = UInt8(byte)
+            }
+        }
+        return result
+    }()
+
+    // MARK: - BPE merge algorithm
+
+    /// Apply BPE merge rules greedily to a single pre-tokenized "word."
+    /// Each merge step picks the lowest-rank adjacent pair and merges all its occurrences.
+    private func bpe(_ word: String) -> [String] {
+        if word.isEmpty { return [] }
+        var symbols = word.map(String.init)
+        if symbols.count < 2 { return symbols }
+
+        let mergeRanks: [String: Int] = Dictionary(
+            uniqueKeysWithValues: merges.enumerated().map { (i, pair) in
+                ("\(pair.0) \(pair.1)", i)
+            }
+        )
+
+        while symbols.count >= 2 {
+            var best: (rank: Int, a: String, b: String)? = nil
+            for i in 0..<(symbols.count - 1) {
+                let key = "\(symbols[i]) \(symbols[i+1])"
+                if let rank = mergeRanks[key] {
+                    if best == nil || rank < best!.rank {
+                        best = (rank, symbols[i], symbols[i+1])
+                    }
+                }
+            }
+            guard let (_, a, b) = best else { break }
+            var merged: [String] = []
+            var i = 0
+            while i < symbols.count {
+                if i < symbols.count - 1, symbols[i] == a, symbols[i+1] == b {
+                    merged.append(a + b)
+                    i += 2
+                } else {
+                    merged.append(symbols[i])
+                    i += 1
+                }
+            }
+            symbols = merged
+        }
+        return symbols
+    }
+}
+
 // MARK: - Internal JSON helpers
 
 /// Flexible decoder for JSON values of unknown shape in tokenizer_config.json.

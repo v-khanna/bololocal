@@ -41,11 +41,11 @@ final class TTSEngineTests: XCTestCase {
         XCTAssertEqual(Qwen3TTSEngine.languageString(for: VoiceID(rawValue: "klingon")), "english")
     }
 
-    // Heavy: gated behind HEARIT_RUN_HEAVY_TESTS=1 — first run downloads ~1.83GB.
+    // Heavy: gated behind BOLO_RUN_HEAVY_TESTS=1 — first run downloads ~1.83GB.
     func test_qwen3Engine_synthesize_realModel() async throws {
         try XCTSkipIf(
-            ProcessInfo.processInfo.environment["HEARIT_RUN_HEAVY_TESTS"] != "1",
-            "Skipping heavy Qwen3 real-model test. Set HEARIT_RUN_HEAVY_TESTS=1 to enable (first run downloads ~1.83GB)."
+            ProcessInfo.processInfo.environment["BOLO_RUN_HEAVY_TESTS"] != "1",
+            "Skipping heavy Qwen3 real-model test. Set BOLO_RUN_HEAVY_TESTS=1 to enable (first run downloads ~1.83GB)."
         )
         let engine = Qwen3TTSEngine(modelProvider: {
             try await Qwen3TTSModel.fromPretrained()

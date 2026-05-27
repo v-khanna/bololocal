@@ -1178,8 +1178,8 @@ The pipeline now exists. Swap the mock engine for the real Qwen3 voice.
   // Long-running, opt-in test — actually loads the model and synthesizes.
   // Skip in CI; run manually via `xcodebuild test -only-testing:BoloTests/TTSEngineTests/test_qwen3Engine_synthesize_realModel`.
   func test_qwen3Engine_synthesize_realModel() async throws {
-      try XCTSkipIf(ProcessInfo.processInfo.environment["HEARIT_RUN_HEAVY_TESTS"] != "1",
-                    "Set HEARIT_RUN_HEAVY_TESTS=1 to run model integration tests")
+      try XCTSkipIf(ProcessInfo.processInfo.environment["BOLO_RUN_HEAVY_TESTS"] != "1",
+                    "Set BOLO_RUN_HEAVY_TESTS=1 to run model integration tests")
       let engine = Qwen3TTSEngine()
       try await engine.synthesize(text: "Hello from Bolo.", voice: .systemDefault, speed: Speed(1.0))
   }

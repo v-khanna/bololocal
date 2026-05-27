@@ -26,6 +26,8 @@ targets:
     platform: macOS
     sources:
       - path: Bolo
+    resources:
+      - path: Bolo/Engine/Chatterbox/Resources
     info:
       path: Bolo/Resources/Info.plist
       properties:

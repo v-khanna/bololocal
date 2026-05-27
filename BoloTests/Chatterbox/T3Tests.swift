@@ -70,4 +70,31 @@ final class T3Tests: XCTestCase {
         let output = block(input, mask: mask, cache: nil)
         XCTAssertEqual(output.shape, [1, 5, cfg.hiddenDim])
     }
+
+    func test_cache_appendingTokens_growsCorrectly() {
+        let cfg = ChatterboxConfig.turbo.t3
+        let cache = T3Cache(numHeads: cfg.numHeads, headDim: cfg.headDim)
+
+        XCTAssertEqual(cache.sequenceLength, 0)
+
+        // First update: shape (B=1, h=16, S=1, d=64)
+        let k1 = MLXRandom.normal([1, cfg.numHeads, 1, cfg.headDim])
+        let v1 = MLXRandom.normal([1, cfg.numHeads, 1, cfg.headDim])
+        let (k1Out, v1Out) = cache.update(keys: k1, values: v1)
+        XCTAssertEqual(k1Out.shape, [1, cfg.numHeads, 1, cfg.headDim])
+        XCTAssertEqual(v1Out.shape, [1, cfg.numHeads, 1, cfg.headDim])
+        XCTAssertEqual(cache.sequenceLength, 1)
+
+        // Second update: cache should now hold both, full shape S=2
+        let k2 = MLXRandom.normal([1, cfg.numHeads, 1, cfg.headDim])
+        let v2 = MLXRandom.normal([1, cfg.numHeads, 1, cfg.headDim])
+        let (k2Out, v2Out) = cache.update(keys: k2, values: v2)
+        XCTAssertEqual(k2Out.shape, [1, cfg.numHeads, 2, cfg.headDim])
+        XCTAssertEqual(v2Out.shape, [1, cfg.numHeads, 2, cfg.headDim])
+        XCTAssertEqual(cache.sequenceLength, 2)
+
+        // Reset clears the cache
+        cache.reset()
+        XCTAssertEqual(cache.sequenceLength, 0)
+    }
 }

@@ -1,29 +1,32 @@
 import Foundation
-import HotKey
+import KeyboardShortcuts
 import AppKit
+
+// Central definition of the shortcut name — referenced by both HotkeyManager and SettingsView.
+extension KeyboardShortcuts.Name {
+    static let readSelection = Self("readSelection", default: .init(.r, modifiers: [.command, .shift]))
+}
 
 @MainActor
 final class HotkeyManager {
-    private var hotkey: HotKey?
-    private var callback: (() -> Void)?
+    private var handler: (() -> Void)?
 
-    /// Register the global ⌘⇧R hotkey. Called once at app launch.
+    /// Register the user's chosen hotkey (defaults to ⌘⇧R).
+    /// KeyboardShortcuts handles persistence via UserDefaults automatically.
     func register(handler: @escaping () -> Void) {
-        self.callback = handler
-        let hk = HotKey(key: .r, modifiers: [.command, .shift])
-        hk.keyDownHandler = { [weak self] in
-            self?.callback?()
+        self.handler = handler
+        KeyboardShortcuts.onKeyDown(for: .readSelection) { [weak self] in
+            self?.handler?()
         }
-        self.hotkey = hk
     }
 
     func unregister() {
-        callback = nil
-        hotkey = nil
+        KeyboardShortcuts.removeAllHandlers()
+        handler = nil
     }
 
     /// Manual fire helper for unit tests (does not actually press the hotkey).
     func fire() {
-        callback?()
+        handler?()
     }
 }

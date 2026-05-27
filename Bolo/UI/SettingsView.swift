@@ -1,4 +1,5 @@
 import SwiftUI
+import KeyboardShortcuts
 
 struct SettingsView: View {
     @ObservedObject var settings: Settings
@@ -28,7 +29,8 @@ struct SettingsView: View {
             HStack {
                 Text("Hotkey")
                 Spacer()
-                Text("⌘⇧R").foregroundStyle(.secondary).monospaced()
+                KeyboardShortcuts.Recorder(for: .readSelection)
+                    .frame(width: 180)
             }
 
             Spacer()

@@ -1,8 +1,8 @@
 name: Bolo
 packages:
-  HotKey:
-    url: https://github.com/soffes/HotKey
-    from: 0.2.0
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.0.0
   Qwen3Speech:
     url: https://github.com/soniqo/speech-swift
     from: 0.0.9
@@ -46,7 +46,7 @@ targets:
         com.apple.security.network.client: true
         com.apple.security.files.user-selected.read-only: true
     dependencies:
-      - package: HotKey
+      - package: KeyboardShortcuts
       - package: Qwen3Speech
         product: Qwen3TTS
       - package: mlx-swift

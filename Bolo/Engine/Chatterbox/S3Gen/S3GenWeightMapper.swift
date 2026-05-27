@@ -50,16 +50,33 @@ enum S3GenWeightMapper {
         let unfilledSwiftKeys: [String]
     }
 
-    /// Sub-modules we have ported so far. Source keys that don't start with one
-    /// of these are reported as `skipped` rather than `unmapped`.
-    private static let portedPrefixes: [String] = [
+    /// Sub-modules handled directly here by stripping the `s3gen.` prefix and
+    /// applying the inner key to the Swift parameter tree. Source keys that
+    /// don't start with one of these are routed elsewhere (decoder/vocoder
+    /// sub-mappers) or reported as `skipped`.
+    private static let directPrefixes: [String] = [
         "input_embedding.",
         "spk_embed_affine_layer.",
         "encoder.",
         "encoder_proj.",
     ]
 
+    /// Sub-trees routed to dedicated mappers inside `apply`. Source keys with
+    /// these prefixes are NOT counted as `skipped` even though they bypass
+    /// the direct path.
+    private static let routedPrefixes: [String] = [
+        "decoder.",
+        "mel2wav.",
+    ]
+
     /// Apply weights to an `S3Gen` instance.
+    ///
+    /// Routes:
+    ///   - `s3gen.input_embedding.*`, `s3gen.spk_embed_affine_layer.*`,
+    ///     `s3gen.encoder.*`, `s3gen.encoder_proj.*` → directly here
+    ///   - `s3gen.decoder.estimator.*` → `DecoderWeightMapper.apply(... to: s3gen.decoder)`
+    ///   - `s3gen.mel2wav.*`           → `VocoderWeightMapper.apply(... to: s3gen.mel2wav)`
+    ///   - other `s3gen.*` keys (e.g. `s3gen.speaker_encoder.*`, `s3gen.tokenizer.*`) → skipped
     ///
     /// - Parameters:
     ///   - weights: full safetensors dictionary (containing `t3.*`, `s3gen.*`, `ve.*` keys).
@@ -77,29 +94,52 @@ enum S3GenWeightMapper {
             // Skip num_batches_tracked buffers that PyTorch emits and are
             // irrelevant to inference (also: not parameters).
             if stripped.hasSuffix(".num_batches_tracked") { continue }
-            if portedPrefixes.contains(where: { stripped.hasPrefix($0) }) {
+            if directPrefixes.contains(where: { stripped.hasPrefix($0) }) {
                 renamed[stripped] = value
+            } else if routedPrefixes.contains(where: { stripped.hasPrefix($0) }) {
+                // Routed to sub-mappers — don't count as skipped, don't apply here.
+                continue
             } else {
                 skipped.append(key)
             }
         }
 
-        let expected = Set(s3gen.parameters().flattened().map { $0.0 })
+        // Apply direct keys.
+        // For the `expected` check we only look at the encoder side of the
+        // tree (the decoder/mel2wav sub-trees are populated by sub-mappers
+        // below; including them here would generate spurious unfilled diags).
+        let allExpected = Set(s3gen.parameters().flattened().map { $0.0 })
+        let expectedDirect = allExpected.filter { path in
+            directPrefixes.contains(where: { path.hasPrefix($0) })
+        }
         let provided = Set(renamed.keys)
-
-        let unmappedSourceKeys = Array(provided.subtracting(expected)).sorted()
-        let unfilledSwiftKeys = Array(expected.subtracting(provided)).sorted()
+        let unmappedSourceKeys = Array(provided.subtracting(expectedDirect)).sorted()
+        let unfilledSwiftKeys = Array(expectedDirect.subtracting(provided)).sorted()
 
         let params = ModuleParameters.unflattened(renamed)
         s3gen.update(parameters: params)
         eval(s3gen)
 
+        // Route decoder + vocoder via sub-mappers. They each report their own
+        // unmapped/unfilled diagnostics — aggregate notes into our report.
+        let decReport = DecoderWeightMapper.apply(weights: weights, to: s3gen.decoder)
+        let vocReport = VocoderWeightMapper.apply(weights: weights, to: s3gen.mel2wav)
+
+        // Aggregate. The CFM solver references s3gen.decoder by reference, so
+        // populating s3gen.decoder is sufficient.
+        var aggUnmapped = unmappedSourceKeys
+        aggUnmapped.append(contentsOf: decReport.unmappedSourceKeys.map { "decoder.estimator." + $0 })
+        aggUnmapped.append(contentsOf: vocReport.unmappedSourceKeys.map { "mel2wav." + $0 })
+        var aggUnfilled = unfilledSwiftKeys
+        aggUnfilled.append(contentsOf: decReport.unfilledSwiftKeys.map { "decoder." + $0 })
+        aggUnfilled.append(contentsOf: vocReport.unfilledSwiftKeys.map { "mel2wav." + $0 })
+
         return Report(
             s3genKeyCount: s3genKeyCount,
-            appliedKeyCount: renamed.count,
+            appliedKeyCount: renamed.count + decReport.appliedKeyCount + vocReport.appliedKeyCount,
             skippedSourceKeys: skipped.sorted(),
-            unmappedSourceKeys: unmappedSourceKeys,
-            unfilledSwiftKeys: unfilledSwiftKeys
+            unmappedSourceKeys: aggUnmapped.sorted(),
+            unfilledSwiftKeys: aggUnfilled.sorted()
         )
     }
 }

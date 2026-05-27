@@ -3,31 +3,35 @@ import Foundation
 import MLX
 import MLXNN
 
-/// Swift port of the S3Gen flow-matching decoder.
+/// Swift port of the S3Gen flow-matching token-to-audio model.
 ///
-/// Status (Phase 5 in-progress): the *deterministic encoder prefix* is fully
-/// implemented and matched against the Python reference, but the CFM diffusion
-/// decoder (`decoder`) and HiFiGAN vocoder (`mel2wav`) are not yet ported.
-/// Use `encodeForDecoder` to exercise the encoder + projection + speaker affine
-/// stages, which is the parity gate this phase ships.
-///
-/// Architecture (matches `mlx_audio.tts.models.chatterbox_turbo.models.s3gen.S3Token2Wav`):
+/// As of Phase 5e (end-to-end composition gate), S3Gen composes the full
+/// `S3Token2Wav` pipeline:
 ///
 ///   input_embedding     — Embedding(speech_vocab_size=6561, 512)
-///   speaker_encoder     — CAMPPlus x-vector net    [NOT ported; use precomputed embedding]
-///   spk_embed_affine    — Linear(192, 80)
-///   encoder             — UpsampleConformerEncoder (this file's main payload)
+///   spk_embed_affine    — Linear(192, 80)        (normalises x-vector → 80-d)
+///   encoder             — UpsampleConformerEncoder
 ///   encoder_proj        — Linear(512, 80)
-///   decoder             — CausalConditionalCFM      [NOT yet ported]
-///   mel2wav             — HiFTGenerator             [NOT yet ported]
+///   decoder             — ConditionalDecoder (meanflow=true; held by CFM)
+///   cfm                 — CausalConditionalCFM (wraps decoder; not a Module
+///                                                child — owns no params)
+///   mel2wav             — HiFTGenerator
 ///
-/// Notes:
-/// - The Python `S3Token2Mel.__call__` first concatenates the reference voice's
-///   `prompt_token` with the speech tokens we want to synthesize, then runs the
-///   encoder over the concatenation. The reference prompt comes from
-///   `gen.prompt_token` in `conds.safetensors`.
-/// - Token embeddings are zero-masked outside the valid length before the encoder
-///   runs (see `encodeForDecoder`).
+/// NOT ported: `speaker_encoder` (CAMPPlus) — Bolo uses the pre-computed
+/// x-vector from `conds.safetensors` (`gen.embedding`).
+///
+/// The pipeline mirrors `mlx_audio.tts.models.chatterbox_turbo.models.s3gen.
+/// S3Token2Wav.inference`:
+///
+///     synthesize(speech_tokens, conditioning)
+///       1. encode_for_decoder(...)                           # encoder + projection
+///       2. build cond  = concat(prompt_feat, zeros)          # (B, T_mel, 80) → (B, 80, T_mel)
+///       3. cfm(noise, mu = h_proj.T, mask, spks, cond)       # 2-step meanflow Euler
+///       4. feat = cfm_out[:, :, mel_len1:]                   # drop prompt prefix
+///       5. mel2wav.inference(feat.T)                         # (B, T, 80) → (B, T_audio)
+///
+/// The pinned-randomness entry points (`pinnedCFMNoise`, `pinnedSineGenPhases`,
+/// `pinnedSineGenNoise`) let tests replay Python's RNG bit-exactly.
 final class S3Gen: Module {
 
     let config: ChatterboxConfig.S3Gen
@@ -36,6 +40,19 @@ final class S3Gen: Module {
     @ModuleInfo(key: "spk_embed_affine_layer") var spkEmbedAffineLayer: Linear
     @ModuleInfo(key: "encoder") var encoder: UpsampleConformerEncoder
     @ModuleInfo(key: "encoder_proj") var encoderProj: Linear
+
+    /// Velocity-field estimator (lives under `s3gen.decoder.estimator.*` in
+    /// the safetensors). Stored as a plain reference and NOT mounted via
+    /// `@ModuleInfo` — MLX-Swift can't unflatten dotted keys, so the decoder's
+    /// weights are loaded directly by `DecoderWeightMapper.apply(... to: s3gen.decoder)`.
+    let decoder: ConditionalDecoder
+
+    /// HiFTGenerator vocoder. Stored as plain ref for the same reason —
+    /// `VocoderWeightMapper.apply(... to: s3gen.mel2wav)` populates it directly.
+    let mel2wav: HiFTGenerator
+
+    /// CFM solver wrapping `decoder`. NOT a Module — owns no parameters.
+    let cfm: CausalConditionalCFM
 
     init(config: ChatterboxConfig.S3Gen) {
         self.config = config
@@ -50,6 +67,14 @@ final class S3Gen: Module {
         self._encoder.wrappedValue = UpsampleConformerEncoder(config: config)
         // Project encoder hidden (512) to mel channels (80).
         self._encoderProj.wrappedValue = Linear(config.tokenEmbeddingDim, 80, bias: true)
+        // Decoder + CFM. Chatterbox-Turbo uses meanflow=true (2-step Euler).
+        // These are *not* @ModuleInfo children — their weights are loaded
+        // via the dedicated DecoderWeightMapper / VocoderWeightMapper which
+        // call .update(parameters:) directly on the inner module.
+        let decoder = ConditionalDecoder(meanflow: true)
+        self.decoder = decoder
+        self.cfm = CausalConditionalCFM(estimator: decoder)
+        self.mel2wav = HiFTGenerator()
         super.init()
     }
 
@@ -117,4 +142,145 @@ final class S3Gen: Module {
             speakerEmbedding: spkProjected
         )
     }
+
+    /// End-to-end S3Gen forward: speech tokens + reference conditioning → audio.
+    ///
+    /// Mirrors `S3Token2Wav.inference` in Python.
+    ///
+    /// - Parameters:
+    ///   - speechTokens: `(B, T_speech)` int32 generated speech tokens (from T3).
+    ///   - promptToken: `(1, T_prompt)` reference voice prompt tokens (from `gen.prompt_token`).
+    ///   - promptTokenLen: `(1,)` int32 valid length of prompt tokens.
+    ///   - promptFeat: `(1, T_prompt_mel, 80)` reference mel features (`gen.prompt_feat`).
+    ///   - speakerXVector: `(1, 192)` x-vector (`gen.embedding`).
+    ///   - nCFMTimesteps: number of CFM Euler steps (default 2 for meanflow Turbo).
+    ///   - pinnedCFMNoise: optional pre-sampled `(B, 80, T_total)` noise for
+    ///     the CFM solver — caller supplies for deterministic parity. If nil,
+    ///     a fresh sample is drawn (production path).
+    ///   - pinnedNoisedMels: optional pre-sampled `(B, 80, T_speech*2)` mel
+    ///     noise that gets spliced onto the trailing part of `pinnedCFMNoise`
+    ///     to match the Python meanflow=True path
+    ///     (`noised_mels = mx.random.normal((B, 80, speech_tokens.shape[1] * 2))`).
+    ///     If nil, a fresh sample is drawn.
+    ///   - pinnedSineGenPhases: optional `(B, nbHarmonics, 1)` uniform phases
+    ///     for the vocoder's SineGen.
+    ///   - pinnedSineGenNoise: optional `(B, nbHarmonics+1, T_audio)` standard-
+    ///     normal samples for SineGen.
+    ///   - applyTrimFade: whether to apply the 20ms cosine trim fade to the
+    ///     audio start (matches Python default).
+    /// - Returns: `(audio: (B, T_audio), speechFeat: (B, 80, T_speech_mel))`.
+    func synthesize(
+        speechTokens: MLXArray,
+        promptToken: MLXArray,
+        promptTokenLen: MLXArray,
+        promptFeat: MLXArray,
+        speakerXVector: MLXArray,
+        nCFMTimesteps: Int = 2,
+        pinnedCFMNoise: MLXArray? = nil,
+        pinnedNoisedMels: MLXArray? = nil,
+        pinnedSineGenPhases: MLXArray? = nil,
+        pinnedSineGenNoise: MLXArray? = nil,
+        applyTrimFade: Bool = true
+    ) -> (audio: MLXArray, speechFeat: MLXArray) {
+        let B = speechTokens.shape[0]
+
+        // ── 1. Encoder pipeline ───────────────────────────────────────────
+        let enc = encodeForDecoder(
+            speechTokens: speechTokens,
+            promptToken: promptToken,
+            promptTokenLen: promptTokenLen,
+            speakerXVector: speakerXVector
+        )
+        // encoder_proj output: (B, T_total, 80) where T_total = 2*(T_prompt + T_speech)
+        // h_masks: (B, 1, T_total)
+        // We compute h_lengths and rebuild mask in the (B, 1, T) convention.
+        let h = enc.encoderProjOut                                     // (B, T_total, 80)
+        let hMasks = enc.encoderMask                                   // (B, 1, T_total)
+        let melLen1 = promptFeat.shape[1]                              // T_prompt_mel (= 500 in v1)
+        let tTotal = h.shape[1]
+        let melLen2 = tTotal - melLen1
+
+        // ── 2. Build conds: concat(prompt_feat, zeros) → (B, 80, T_total) ─
+        // Python:
+        //   zeros_padding = mx.zeros((B, mel_len2, 80))
+        //   conds = mx.concatenate([prompt_feat, zeros_padding], axis=1)
+        //   conds = conds.transpose(0, 2, 1)
+        precondition(melLen2 >= 0,
+            "S3Gen.synthesize: prompt_feat length \(melLen1) exceeds encoder output length \(tTotal). " +
+            "speech_tokens is too short relative to the prompt.")
+        let zerosPad = MLXArray.zeros([B, melLen2, 80])
+        let conds = concatenated([promptFeat, zerosPad], axis: 1).transposed(0, 2, 1)   // (B, 80, T_total)
+
+        // Decoder mask: (B, 1, T_total) of float32 (encoder mask already in this form
+        // and width matches T_total).
+        let mask = hMasks.asType(.float32)
+
+        // ── 3. CFM Euler solve ───────────────────────────────────────────
+        // mu = h_proj.T = (B, 80, T_total)
+        let mu = h.transposed(0, 2, 1)                                  // (B, 80, T_total)
+        // CFM noise. The CFM solver expects the FULL (B, 80, T_total) noise
+        // AND optional `noisedMels` (B, 80, T_speech*2) for meanflow that
+        // gets spliced onto the trailing part. If neither is pinned the
+        // production code path would sample both (not yet wired).
+        precondition(pinnedCFMNoise != nil,
+            "S3Gen.synthesize: pinnedCFMNoise is required for now (production " +
+            "random sampling path not yet implemented).")
+        let noise = pinnedCFMNoise!
+        let feat = cfm(
+            noise: noise,
+            mu: mu,
+            mask: mask,
+            nTimesteps: nCFMTimesteps,
+            spks: enc.speakerEmbedding,
+            cond: conds,
+            noisedMels: pinnedNoisedMels,
+            meanflow: true
+        )                                                               // (B, 80, T_total)
+
+        // ── 4. Drop the prompt prefix ────────────────────────────────────
+        // Python: feat = feat[:, :, mel_len1:]
+        let feat2 = feat[0..., 0..., melLen1..<tTotal]                  // (B, 80, mel_len2)
+
+        // ── 5. Vocoder ───────────────────────────────────────────────────
+        // mel2wav.inference expects (B, T, 80). Our feat2 is (B, 80, T) — transpose.
+        let feat2T = feat2.transposed(0, 2, 1)                          // (B, mel_len2, 80)
+        let (audioRaw, _) = mel2wav.inference(
+            speechFeat: feat2T,
+            sineGenRandomPhases: pinnedSineGenPhases,
+            sineGenNoise: pinnedSineGenNoise
+        )                                                               // (B, T_audio)
+
+        // ── 6. Trim fade (optional) ──────────────────────────────────────
+        // Python applies a 20ms cosine ramp at the start of the audio to reduce
+        // artifacts from the prompt-suffix boundary.
+        var audio = audioRaw
+        if applyTrimFade {
+            let sr = HiFTGenerator.samplingRateDefault
+            let nTrim = sr / 50                                         // 20 ms at 24kHz = 480 samples
+            let fadeLen = 2 * nTrim
+            if audio.shape[1] >= fadeLen {
+                // Trim fade: zeros for first nTrim samples, then cosine ramp.
+                //   trim_fade[:nTrim] = 0
+                //   trim_fade[nTrim:] = (cos(linspace(pi, 0, nTrim)) + 1) / 2
+                var fade = [Float](repeating: 0, count: fadeLen)
+                for i in 0..<nTrim {
+                    let t = Float.pi - Float.pi * Float(i) / Float(nTrim - 1)
+                    fade[nTrim + i] = (cos(t) + 1) / 2
+                }
+                let fadeArr = MLXArray(fade).reshaped([1, fadeLen])     // (1, fadeLen)
+                let head = audio[0..., 0..<fadeLen] * fadeArr
+                let tail = audio[0..., fadeLen..<audio.shape[1]]
+                audio = concatenated([head, tail], axis: 1)
+            }
+        }
+
+        return (audio, feat2)
+    }
+}
+
+extension HiFTGenerator {
+    /// Default sampling rate for the Chatterbox-Turbo HiFTGenerator.
+    /// Hard-coded mirror of the constructor default so callers can compute
+    /// e.g. trim-fade lengths without instantiating a vocoder.
+    static let samplingRateDefault: Int = 24000
 }

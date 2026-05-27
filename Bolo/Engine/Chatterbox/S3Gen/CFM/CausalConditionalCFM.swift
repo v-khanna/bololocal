@@ -31,7 +31,12 @@ import MLXNN
 ///   - `nTimesteps`: integer; default 2 for meanflow (Turbo), 10 for base.
 ///
 /// Output: `(B, 80, T)` `speech_feat` mel-like tensor at `t=1`.
-final class CausalConditionalCFM: Module {
+/// NOT a Module subclass: the CFM solver owns no parameters of its own.
+/// Its only Module-valued field is `estimator`, supplied externally and
+/// already mounted in the parameter tree by the host model. Making this a
+/// Module would duplicate the decoder under both `decoder.*` and
+/// `cfm.estimator.*` paths.
+final class CausalConditionalCFM {
 
     /// Velocity-field estimator. NOTE: this wraps an existing decoder; it's
     /// NOT re-registered as a child module (the decoder owns its own params).
@@ -55,7 +60,6 @@ final class CausalConditionalCFM: Module {
         self.tScheduler = tScheduler
         self.inferenceCfgRate = inferenceCfgRate
         self.sigmaMin = sigmaMin
-        super.init()
     }
 
     /// Forward CFM ODE solve.

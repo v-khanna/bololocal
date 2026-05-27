@@ -38,17 +38,20 @@ import Qwen3TTS
 /// Why an actor:
 /// - `Qwen3TTSModel` isn't `Sendable`. Wrapping it in an actor serializes access (and the
 ///   model is single-threaded anyway — concurrent synthesize calls would corrupt MLX state).
-/// - A future `ModelManager` actor (Task 9) will own model lifecycle externally; until then
-///   the engine self-manages via lazy `fromPretrained()` on first synthesize.
+/// - `ModelManager` (Task 9) owns the model lifecycle externally. The engine receives a
+///   `modelProvider` closure and calls it on each synthesize — ModelManager handles caching,
+///   lazy-loading, and idle-unload.
 actor Qwen3TTSEngine: TTSEngine {
-    private var model: Qwen3TTSModel?
+    private let modelProvider: @Sendable () async throws -> Qwen3TTSModel
 
     // Audio playback graph — created on first synthesize, reused across calls.
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var varispeedNode: AVAudioUnitVarispeed?
 
-    init() {}
+    init(modelProvider: @escaping @Sendable () async throws -> Qwen3TTSModel) {
+        self.modelProvider = modelProvider
+    }
 
     nonisolated func synthesize(text: String, voice: VoiceID, speed: Speed) async throws {
         guard !text.isEmpty else { throw TTSError.emptyText }
@@ -56,7 +59,7 @@ actor Qwen3TTSEngine: TTSEngine {
     }
 
     private func _synthesize(text: String, voice: VoiceID, speed: Speed) async throws {
-        let model = try await loadModelIfNeeded()
+        let model = try await modelProvider()
         let language = Self.languageString(for: voice)
         let sampleRate = Double(model.sampleRate)
 
@@ -80,19 +83,6 @@ actor Qwen3TTSEngine: TTSEngine {
     private func _stop() {
         playerNode?.stop()
         engine?.stop()
-    }
-
-    // MARK: - Model loading
-
-    private func loadModelIfNeeded() async throws -> Qwen3TTSModel {
-        if let model { return model }
-        do {
-            let loaded = try await Qwen3TTSModel.fromPretrained()
-            model = loaded
-            return loaded
-        } catch {
-            throw TTSError.modelNotLoaded
-        }
     }
 
     // MARK: - Playback

@@ -1,5 +1,6 @@
 import XCTest
 @testable import HearIt
+@preconcurrency import Qwen3TTS
 
 final class TTSEngineTests: XCTestCase {
     func test_voiceID_isHashable() {
@@ -23,19 +24,19 @@ final class TTSEngineTests: XCTestCase {
         do {
             try await engine.synthesize(text: "", voice: .systemDefault, speed: Speed(1.0))
             XCTFail("Should have thrown")
-        } catch TTSError.emptyText {
+        } catch HearIt.TTSError.emptyText {
             // expected
         }
     }
 
     // Cheap: just construction. Does NOT load the 1.83GB model.
     func test_qwen3Engine_initializes() {
-        XCTAssertNotNil(Qwen3TTSEngine())
+        XCTAssertNotNil(Qwen3TTSEngine(modelProvider: { throw TTSError.modelNotLoaded }))
     }
 
     // VoiceID.systemDefault → "english" mapping (no model load).
     func test_qwen3Engine_languageMapping() {
-        XCTAssertEqual(Qwen3TTSEngine.languageString(for: .systemDefault), "english")
+        XCTAssertEqual(Qwen3TTSEngine.languageString(for: VoiceID.systemDefault), "english")
         XCTAssertEqual(Qwen3TTSEngine.languageString(for: VoiceID(rawValue: "chinese")), "chinese")
         XCTAssertEqual(Qwen3TTSEngine.languageString(for: VoiceID(rawValue: "klingon")), "english")
     }
@@ -46,10 +47,12 @@ final class TTSEngineTests: XCTestCase {
             ProcessInfo.processInfo.environment["HEARIT_RUN_HEAVY_TESTS"] != "1",
             "Skipping heavy Qwen3 real-model test. Set HEARIT_RUN_HEAVY_TESTS=1 to enable (first run downloads ~1.83GB)."
         )
-        let engine = Qwen3TTSEngine()
+        let engine = Qwen3TTSEngine(modelProvider: {
+            try await Qwen3TTSModel.fromPretrained()
+        })
         try await engine.synthesize(
             text: "Hello world.",
-            voice: .systemDefault,
+            voice: VoiceID.systemDefault,
             speed: Speed(1.0)
         )
     }

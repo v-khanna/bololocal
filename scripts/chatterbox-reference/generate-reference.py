@@ -473,6 +473,148 @@ s3gen_metadata["decoder"] = {
     "prompt_mel_len": int(prompt_mel_len),
 }
 
+# ───────────────────────────────────────────────────────────────────────────
+# Vocoder reference (Phase 5d) — HiFTGenerator (s3gen.mel2wav.*)
+# ───────────────────────────────────────────────────────────────────────────
+# The HiFTGenerator turns a mel-like feature `speech_feat` of shape (B, T, 80)
+# into raw 24 kHz audio of shape (B, T_audio). It is mostly deterministic
+# given fixed inputs *except* for the SineGen noise (random uniform phase per
+# harmonic + Gaussian additive noise). To make this reproducible across the
+# Python and Swift implementations we replace mx.random calls with a numpy
+# RNG seeded to 7777, capture all randomness as bins, and let the Swift side
+# replay them bit-exactly when it runs the parity gate.
+#
+# We capture:
+#   s3gen_vocoder_speech_feat.bin   — input mel (1, T_mel, 80)
+#   s3gen_vocoder_f0.bin            — F0Predictor output (1, T_mel)
+#   s3gen_vocoder_source.bin        — m_source output (1, 1, T_audio)
+#   s3gen_vocoder_audio.bin         — final audio (1, T_audio)
+#
+# The deterministic intermediate `f0` is the strongest single bisection point
+# (it isolates F0Predictor from the rest), so we save it. The source signal
+# is the next bisection point (isolates SineGen + l_linear), and the audio is
+# the final parity gate.
+print("\n" + "═" * 60)
+print("Vocoder reference outputs (Phase 5d)")
+print("═" * 60)
+
+# Build a small, reproducible mel input. The "real" mel here would come from
+# the CFM Euler solver (Phase 5c), but that's not yet ported on the Swift
+# side; instead we use prompt_feat (a real reference mel from conds.safetensors)
+# to provide a realistic input. Shape: (1, 500, 80).
+speech_feat_vocoder = gen_prompt_feat  # (1, T_mel=500, 80)
+print(f"  speech_feat shape: {speech_feat_vocoder.shape}")
+save_raw(speech_feat_vocoder, OUTPUT_DIR / "s3gen_vocoder_speech_feat.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_vocoder_speech_feat.npy", np.array(speech_feat_vocoder))
+
+# Get the mel2wav module.
+mel2wav = s3gen.mel2wav
+
+# Step 1: F0 prediction is deterministic.
+mel_BCT = speech_feat_vocoder.transpose(0, 2, 1)  # (1, 80, T_mel)
+f0_pred = mel2wav.f0_predictor(mel_BCT)            # (1, T_mel)
+mx.eval(f0_pred)
+print(f"  f0_predictor out: {f0_pred.shape}, "
+      f"mean={float(f0_pred.mean()):+.5f}, std={float(f0_pred.std()):.5f}")
+save_raw(f0_pred, OUTPUT_DIR / "s3gen_vocoder_f0.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_vocoder_f0.npy", np.array(f0_pred))
+
+# Step 2: Upsample F0.
+f0_up = mel2wav._upsample_f0(f0_pred)              # (1, T_mel*scale, 1)
+T_audio = f0_up.shape[1]
+print(f"  f0_upsampled shape: {f0_up.shape}, T_audio={T_audio}")
+
+# Step 3: Source generation. We replace random noise with pinned numpy so
+# Swift can replay it. The SineGen forward uses two random calls:
+#   (a) random_phases for harmonics: (B, harmonic_num, 1) uniform[-pi, pi]
+#   (b) noise: shape == sine_waves.shape == (B, harmonic_num+1, T_audio)
+# Then in SourceModule:
+#   (c) tanh-noise: shape == uv.shape == (B, T_audio, 1)
+# But (c) is computed and immediately discarded (not used downstream — only
+# sine_merge is consumed by .decode()). Likewise (b) is consumed inside the
+# sine path. We capture (a) and (b) and rebuild the source ourselves to keep
+# Swift+Python in lockstep.
+
+NB_HARMONICS = 8  # default in s3gen config
+B = speech_feat_vocoder.shape[0]
+rng = np.random.RandomState(7777)
+sinegen_random_phases_np = rng.uniform(-np.pi, np.pi, size=(B, NB_HARMONICS, 1)).astype(np.float32)
+sine_shape = (B, NB_HARMONICS + 1, T_audio)
+sinegen_noise_np = rng.standard_normal(size=sine_shape).astype(np.float32)
+sinegen_random_phases = mx.array(sinegen_random_phases_np)
+sinegen_noise = mx.array(sinegen_noise_np)
+save_raw(sinegen_random_phases, OUTPUT_DIR / "s3gen_vocoder_sinegen_phases.bin", np.float32)
+save_raw(sinegen_noise, OUTPUT_DIR / "s3gen_vocoder_sinegen_noise.bin", np.float32)
+
+# Replicate SineGen.__call__ deterministically using pinned randoms.
+f0_for_sinegen = f0_up.transpose(0, 2, 1)  # (B, 1, T_audio)
+sinegen = mel2wav.m_source.l_sin_gen
+B_sg, _, T_sg = f0_for_sinegen.shape
+harmonics = mx.arange(1, sinegen.harmonic_num + 2)[None, :, None]  # (1, H, 1)
+F_mat = f0_for_sinegen * harmonics / sinegen.sampling_rate
+theta_mat = 2 * np.pi * mx.cumsum(F_mat, axis=-1)
+theta_mat = theta_mat % (2 * np.pi)
+zero_phase = mx.zeros((B_sg, 1, 1))
+phase_vec = mx.concatenate([zero_phase, sinegen_random_phases], axis=1)
+sine_waves = sinegen.sine_amp * mx.sin(theta_mat + phase_vec)
+uv = (f0_for_sinegen > sinegen.voiced_threshold).astype(mx.float32)
+noise_amp = uv * sinegen.noise_std + (1 - uv) * sinegen.sine_amp / 3
+noise = noise_amp * sinegen_noise
+sine_waves = sine_waves * uv + noise
+# Transpose to (B, T, H+1) and run l_linear
+sine_wavs_T = sine_waves.transpose(0, 2, 1)
+sine_merge = mx.tanh(mel2wav.m_source.l_linear(sine_wavs_T))  # (B, T, 1)
+source_signal = sine_merge.transpose(0, 2, 1)  # (B, 1, T_audio)
+mx.eval(source_signal)
+print(f"  source signal shape: {source_signal.shape}, "
+      f"mean={float(source_signal.mean()):+.5f}, std={float(source_signal.std()):.5f}")
+save_raw(source_signal, OUTPUT_DIR / "s3gen_vocoder_source.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_vocoder_source.npy", np.array(source_signal))
+
+# Step 4: Decode (deterministic given mel and source).
+audio = mel2wav.decode(mel_BCT, source_signal)
+mx.eval(audio)
+print(f"  audio shape: {audio.shape}, "
+      f"mean={float(audio.mean()):+.5f}, std={float(audio.std()):.5f}, "
+      f"min={float(audio.min()):+.5f}, max={float(audio.max()):+.5f}")
+save_raw(audio, OUTPUT_DIR / "s3gen_vocoder_audio.bin", np.float32)
+np.save(OUTPUT_DIR / "s3gen_vocoder_audio.npy", np.array(audio))
+
+# Optional: write a wav for ear-test purposes.
+try:
+    import wave
+    audio_clipped = np.clip(np.array(audio[0]), -1.0, 1.0)
+    audio_int16 = (audio_clipped * 32767).astype(np.int16)
+    with wave.open(str(OUTPUT_DIR / "s3gen_vocoder_audio.wav"), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(mel2wav.sampling_rate)
+        w.writeframes(audio_int16.tobytes())
+    print(f"  wav written to {OUTPUT_DIR / 's3gen_vocoder_audio.wav'}")
+except Exception as e:
+    print(f"  (skipped wav: {e})")
+
+s3gen_metadata["vocoder"] = {
+    "speech_feat_shape": list(speech_feat_vocoder.shape),
+    "f0_shape": list(f0_pred.shape),
+    "f0_mean": float(f0_pred.mean()),
+    "f0_std": float(f0_pred.std()),
+    "source_shape": list(source_signal.shape),
+    "audio_shape": list(audio.shape),
+    "audio_mean": float(audio.mean()),
+    "audio_std": float(audio.std()),
+    "audio_min": float(audio.min()),
+    "audio_max": float(audio.max()),
+    "sinegen_phases_shape": list(sinegen_random_phases.shape),
+    "sinegen_noise_shape": list(sinegen_noise.shape),
+    "nb_harmonics": NB_HARMONICS,
+    "sampling_rate": mel2wav.sampling_rate,
+    "upsample_scale": mel2wav.f0_upsample_scale,
+    "n_fft": mel2wav.istft_params["n_fft"],
+    "hop_len": mel2wav.istft_params["hop_len"],
+    "noise_seed": 7777,
+}
+
 # ── Metadata ────────────────────────────────────────────────────────────────
 metadata = {
     "test_text": TEST_TEXT,

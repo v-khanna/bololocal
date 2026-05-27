@@ -21,3 +21,7 @@ notarization.log
 
 # macOS
 .DS_Store
+
+# Chatterbox reference environment (developer-only, not bundled)
+scripts/chatterbox-reference/venv/
+scripts/chatterbox-reference/reference-outputs/

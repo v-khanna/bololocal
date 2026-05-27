@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var modelManager: ModelManager<Qwen3TTSModel>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Settings.shared.load()
+
         // Status item
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         let icon = NSImage(systemSymbolName: "waveform", accessibilityDescription: "HearIt")

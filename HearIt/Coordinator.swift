@@ -28,7 +28,9 @@ final class Coordinator {
             NSLog("HearIt: nothing selected")
             return
         }
-        // Voice + speed wired to Settings in Task 10. For now: defaults.
-        playback.play(text: text, voice: .systemDefault, speed: Speed(1.0))
+        let s = Settings.shared
+        // VoiceID.rawValue carries the language string for Qwen3TTSEngine.
+        let voice = VoiceID(rawValue: s.selectedLanguage)
+        playback.play(text: text, voice: voice, speed: s.speed)
     }
 }

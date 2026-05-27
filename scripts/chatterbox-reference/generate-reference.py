@@ -388,6 +388,56 @@ print(f"  t value:     {t_ref.tolist()}")
 estimator = s3gen.decoder.estimator
 # Eval ensures weights loaded before any compute.
 mx.eval(mu_ref, mask_ref, x_t_ref, spk_ref, cond_ref, t_ref)
+
+# Capture a few intermediate values for layer-by-layer bisection.
+print("  Capturing intermediates ...")
+# Helper: re-import the sinusoidal embed to be sure.
+from mlx_audio.tts.models.chatterbox_turbo.models.s3gen.decoder import sinusoidal_pos_emb
+
+# 1. After sinusoidal + time_mlp.
+t_emb_sin = sinusoidal_pos_emb(t_ref, estimator.in_channels)
+t_emb = estimator.time_mlp(t_emb_sin)
+mx.eval(t_emb)
+print(f"    t_emb after time_mlp:    {t_emb.shape}, "
+      f"mean={float(t_emb.mean()):+.5f}, std={float(t_emb.std()):.5f}")
+save_raw(t_emb, OUTPUT_DIR / "s3gen_decoder_t_emb.bin", np.float32)
+
+# 2. After input concat (x, mu, spks_expanded, cond).
+spks_expanded = mx.broadcast_to(
+    spk_ref[:, :, None], (spk_ref.shape[0], spk_ref.shape[1], x_t_ref.shape[2])
+)
+concat_in = mx.concatenate([x_t_ref, mu_ref, spks_expanded, cond_ref], axis=1)
+mx.eval(concat_in)
+print(f"    concat input:            {concat_in.shape}")
+save_raw(concat_in, OUTPUT_DIR / "s3gen_decoder_concat_input.bin", np.float32)
+
+# 3. After the only down_block (resnet + 4 transformer + downsample).
+down_block = estimator.down_blocks[0]
+resnet0 = down_block.resnet
+
+# 3a. Inside resnet: just block1.
+x_after_block1 = resnet0.block1(concat_in, mask_ref)
+mx.eval(x_after_block1)
+print(f"    after resnet.block1:     {x_after_block1.shape}, "
+      f"mean={float(x_after_block1.mean()):+.5f}, std={float(x_after_block1.std()):.5f}")
+save_raw(x_after_block1, OUTPUT_DIR / "s3gen_decoder_after_block1.bin", np.float32)
+
+# 3b. After adding time embedding via mlp.0 (Linear) applied to mish(t_emb).
+# In the meanflow=False model, mlp is [Linear] (mish is inline).
+import mlx.nn as _nn_mod
+t_proj = resnet0.mlp[0](_nn_mod.mish(t_emb))
+mx.eval(t_proj)
+print(f"    t_proj (mlp.0 of mish):  {t_proj.shape}, "
+      f"mean={float(t_proj.mean()):+.5f}, std={float(t_proj.std()):.5f}")
+save_raw(t_proj, OUTPUT_DIR / "s3gen_decoder_t_proj.bin", np.float32)
+
+# 3c. After resnet (full).
+x_after_resnet = down_block.resnet(concat_in, mask_ref, t_emb)
+mx.eval(x_after_resnet)
+print(f"    after down_block.resnet: {x_after_resnet.shape}, "
+      f"mean={float(x_after_resnet.mean()):+.5f}, std={float(x_after_resnet.std()):.5f}")
+save_raw(x_after_resnet, OUTPUT_DIR / "s3gen_decoder_after_down_resnet.bin", np.float32)
+
 velocity = estimator(x_t_ref, mask_ref, mu_ref, t_ref, spk_ref, cond_ref)
 mx.eval(velocity)
 print(f"  velocity out shape: {velocity.shape}, "

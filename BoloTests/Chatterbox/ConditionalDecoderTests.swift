@@ -229,6 +229,76 @@ final class ConditionalDecoderTests: XCTestCase {
         let tArr = mlxFromBin(tval)
         let velocityExpected = mlxFromBin(velocityRef)
 
+        // 3b. Intermediate parity bisection — check t_emb, concat input,
+        // and the first resnet output match Python's intermediates.
+        let tEmbExpected = mlxFromBin(try loadFloat32(
+            refDir.appendingPathComponent("s3gen_decoder_t_emb.bin")))
+        let concatExpected = mlxFromBin(try loadFloat32(
+            refDir.appendingPathComponent("s3gen_decoder_concat_input.bin")))
+        let afterDownResnetExpected = mlxFromBin(try loadFloat32(
+            refDir.appendingPathComponent("s3gen_decoder_after_down_resnet.bin")))
+
+        let tEmbSinSwift = sinusoidalPosEmb(tArr, dim: decoder.inChannels)
+        let tEmbSwift = decoder.timeMlp(tEmbSinSwift)
+        MLX.eval(tEmbSwift)
+        let tEmbMSE = mse(tEmbSwift, tEmbExpected)
+        print("[decoder-parity] t_emb MSE = \(tEmbMSE)")
+        XCTAssertLessThan(tEmbMSE, 1e-4,
+            "t_emb (sinusoidal + time_mlp) diverged: MSE=\(tEmbMSE)")
+
+        // Concat input
+        let T = xtArr.shape[2]
+        let spksExpSwift = MLX.broadcast(
+            spksArr.expandedDimensions(axis: -1),
+            to: [spksArr.shape[0], spksArr.shape[1], T]
+        )
+        let concatSwift = concatenated(
+            [xtArr, muArr, spksExpSwift, condArr], axis: 1)
+        MLX.eval(concatSwift)
+        let concatMSE = mse(concatSwift, concatExpected)
+        print("[decoder-parity] concat MSE = \(concatMSE)")
+        XCTAssertLessThan(concatMSE, 1e-7,
+            "concat input diverged: MSE=\(concatMSE)")
+
+        // Block1 of first down resnet (concatSwift -> block1 -> ...)
+        let downBlock0 = decoder.downBlocks[0]
+        let resnet0 = downBlock0.resnet
+        let block1 = resnet0.block1
+        let block1OutSwift: MLXArray
+        if let c = block1 as? CausalBlock1D {
+            block1OutSwift = c(concatSwift, mask: maskArr)
+        } else if let b = block1 as? Block1D {
+            block1OutSwift = b(concatSwift, mask: maskArr)
+        } else {
+            XCTFail("Unexpected block1 type")
+            return
+        }
+        MLX.eval(block1OutSwift)
+        let block1Expected = mlxFromBin(try loadFloat32(
+            refDir.appendingPathComponent("s3gen_decoder_after_block1.bin")))
+        let block1MSE = mse(block1OutSwift, block1Expected)
+        print("[decoder-parity] block1 MSE = \(block1MSE), max|diff| = " +
+              "\((block1OutSwift - block1Expected).abs().max().item(Float.self))")
+
+        // mlp.0 ∘ mish(t_emb)
+        let tProjSwift = resnet0.mlp0(MLXNN.mish(tEmbSwift))
+        MLX.eval(tProjSwift)
+        let tProjExpected = mlxFromBin(try loadFloat32(
+            refDir.appendingPathComponent("s3gen_decoder_t_proj.bin")))
+        let tProjMSE = mse(tProjSwift, tProjExpected)
+        print("[decoder-parity] t_proj MSE = \(tProjMSE)")
+
+        // First down block resnet
+        let afterResnetSwift = downBlock0.resnet(
+            concatSwift, mask: maskArr, timeEmb: tEmbSwift)
+        MLX.eval(afterResnetSwift)
+        let afterResnetMSE = mse(afterResnetSwift, afterDownResnetExpected)
+        let afterResnetMax = (afterResnetSwift - afterDownResnetExpected)
+            .abs().max().item(Float.self)
+        print("[decoder-parity] after down_block.resnet MSE = \(afterResnetMSE), max|diff| = \(afterResnetMax)")
+        XCTAssertLessThan(afterResnetMSE, 1e-3,
+            "first down resnet diverged: MSE=\(afterResnetMSE)")
+
         // 4. Run Swift forward.
         let velocitySwift = decoder(
             xtArr, mask: maskArr, mu: muArr, t: tArr, spks: spksArr, cond: condArr
@@ -272,5 +342,10 @@ final class ConditionalDecoderTests: XCTestCase {
 
     private func mlxFromBin(_ t: BinTensor) -> MLXArray {
         return MLXArray(t.values).reshaped(t.shape)
+    }
+
+    private func mse(_ a: MLXArray, _ b: MLXArray) -> Float {
+        let diff = a - b
+        return (diff * diff).mean().item(Float.self)
     }
 }

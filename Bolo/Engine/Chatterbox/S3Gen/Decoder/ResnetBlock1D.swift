@@ -149,27 +149,29 @@ final class CausalBlock1D: Module {
 ///   h = block2(h, mask)
 ///   out = h + res_conv(x * mask)
 ///
-/// The "mlp" container in PyTorch is `Sequential(Mish(), Linear(...))`, so the
-/// linear lives at index 1. We expose it as `mlp.0` in Swift (sanitization
-/// drops the Mish module before saving, and weight keys become `mlp.0.{w,b}`).
-///
-/// Wait — the safetensors keys we observed are `mlp.0.{w,b}` not `mlp.1.{w,b}`,
-/// so the saved PyTorch state already strips the Mish module. Hence `mlp.0`
-/// in our Swift module.
+/// On-disk keys for the timestep MLP: `mlp.0.{w,b}` only — PyTorch saves the
+/// `Sequential(Mish, Linear)` minus the parameter-less Mish, so index 0 IS
+/// the Linear. We expose this in Swift as a single-element `[Module]` array
+/// named `mlp` so MLX-Swift's array indexer produces the `mlp.0` segment.
 final class ResnetBlock1D: Module {
 
     let causal: Bool
 
-    /// Linear that projects timestep embedding to channel dimension.
-    /// Weight key `mlp.0.{weight,bias}`.
-    @ModuleInfo(key: "mlp.0") var mlp0: Linear
+    /// One-element list containing the timestep projection Linear. MLX-Swift's
+    /// parameter walker turns `[Module]` properties into numerically-keyed
+    /// children, so the weight ends up at path `mlp.0.{weight,bias}` —
+    /// matching the safetensors layout.
+    @ModuleInfo(key: "mlp") var mlp: [Module]
     @ModuleInfo(key: "block1") var block1: Module
     @ModuleInfo(key: "block2") var block2: Module
     @ModuleInfo(key: "res_conv") var resConv: Conv1dPT
 
+    /// Convenience accessor for the timestep-projection linear.
+    var mlp0: Linear { mlp[0] as! Linear }
+
     init(dim: Int, dimOut: Int, timeEmbDim: Int, causal: Bool = true, groups: Int = 8) {
         self.causal = causal
-        self._mlp0.wrappedValue = Linear(timeEmbDim, dimOut, bias: true)
+        self._mlp.wrappedValue = [Linear(timeEmbDim, dimOut, bias: true)]
         if causal {
             self._block1.wrappedValue = CausalBlock1D(dim: dim, dimOut: dimOut)
             self._block2.wrappedValue = CausalBlock1D(dim: dimOut, dimOut: dimOut)

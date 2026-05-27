@@ -71,6 +71,18 @@ final class T3Tests: XCTestCase {
         XCTAssertEqual(output.shape, [1, 5, cfg.hiddenDim])
     }
 
+    func test_t3_forwardPass_outputShape() {
+        let cfg = ChatterboxConfig.turbo.t3
+        let t3 = T3(config: cfg)
+        // (B=1, S=5) integer text token IDs
+        let inputIDs = MLXArray([42, 17, 8, 99, 3]).reshaped([1, 5])
+        // Speaker embedding is 256-d (corrected from earlier 192-d plan assumption)
+        let speakerEmb = MLXRandom.normal([1, 256])
+        let output = t3(inputIDs: inputIDs, speakerEmbedding: speakerEmb, cache: nil)
+        // Output: (B, S, speech_vocab_size = 6561)
+        XCTAssertEqual(output.shape, [1, 5, 6561])
+    }
+
     func test_cache_appendingTokens_growsCorrectly() {
         let cfg = ChatterboxConfig.turbo.t3
         let cache = T3Cache(numHeads: cfg.numHeads, headDim: cfg.headDim)

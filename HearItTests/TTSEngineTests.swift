@@ -27,4 +27,30 @@ final class TTSEngineTests: XCTestCase {
             // expected
         }
     }
+
+    // Cheap: just construction. Does NOT load the 1.83GB model.
+    func test_qwen3Engine_initializes() {
+        XCTAssertNotNil(Qwen3TTSEngine())
+    }
+
+    // VoiceID.systemDefault → "english" mapping (no model load).
+    func test_qwen3Engine_languageMapping() {
+        XCTAssertEqual(Qwen3TTSEngine.languageString(for: .systemDefault), "english")
+        XCTAssertEqual(Qwen3TTSEngine.languageString(for: VoiceID(rawValue: "chinese")), "chinese")
+        XCTAssertEqual(Qwen3TTSEngine.languageString(for: VoiceID(rawValue: "klingon")), "english")
+    }
+
+    // Heavy: gated behind HEARIT_RUN_HEAVY_TESTS=1 — first run downloads ~1.83GB.
+    func test_qwen3Engine_synthesize_realModel() async throws {
+        try XCTSkipIf(
+            ProcessInfo.processInfo.environment["HEARIT_RUN_HEAVY_TESTS"] != "1",
+            "Skipping heavy Qwen3 real-model test. Set HEARIT_RUN_HEAVY_TESTS=1 to enable (first run downloads ~1.83GB)."
+        )
+        let engine = Qwen3TTSEngine()
+        try await engine.synthesize(
+            text: "Hello world.",
+            voice: .systemDefault,
+            speed: Speed(1.0)
+        )
+    }
 }

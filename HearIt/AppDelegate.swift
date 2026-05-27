@@ -8,8 +8,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var popoverController: PopoverController!
     let hotkeyManager = HotkeyManager()
     private var settingsWindow: NSWindow?
+    private var onboardingWindow: NSWindow?
     var coordinator: Coordinator?
     var modelManager: ModelManager<Qwen3TTSModel>?
+    var downloadProgress: ModelDownloadProgress?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Settings.shared.load()
@@ -24,8 +26,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.statusItem = item
 
         // Pipeline — model is lazy-loaded on first ⌘⇧R; unloaded after 5 min idle.
+        let progress = ModelDownloadProgress()
+        self.downloadProgress = progress
+
         let manager = ModelManager<Qwen3TTSModel>(idleTimeout: 300) {
-            try await Qwen3TTSModel.fromPretrained()
+            try await Qwen3TTSModel.fromPretrained(progressHandler: { p, label in
+                Task { @MainActor in
+                    progress.update(progress: p, label: label)
+                    if p >= 1.0 { progress.complete() }
+                }
+            })
         }
         let engine: any TTSEngine = Qwen3TTSEngine(modelProvider: {
             try await manager.ensureLoaded()
@@ -42,6 +52,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinatorState: coordinator.state,
             onOpenSettings: { [weak self] in self?.openSettings() }
         )
+
+        // First-run onboarding
+        if !Settings.shared.hasCompletedOnboarding {
+            showOnboarding()
+        }
     }
 
     @objc private func togglePopover() {
@@ -69,5 +84,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow = window
+    }
+
+    private func showOnboarding() {
+        guard let downloadProgress = downloadProgress, let modelManager = modelManager else { return }
+        let view = OnboardingView(
+            downloadProgress: downloadProgress,
+            onStartDownload: {
+                Task { @MainActor in
+                    do {
+                        _ = try await modelManager.ensureLoaded()
+                        downloadProgress.complete()
+                    } catch {
+                        downloadProgress.fail(error.localizedDescription)
+                    }
+                }
+            },
+            onComplete: { [weak self] in
+                Settings.shared.hasCompletedOnboarding = true
+                self?.onboardingWindow?.close()
+                self?.onboardingWindow = nil
+            }
+        )
+        let host = NSHostingController(rootView: view)
+        let window = NSWindow(contentViewController: host)
+        window.title = "Welcome to HearIt"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        onboardingWindow = window
     }
 }

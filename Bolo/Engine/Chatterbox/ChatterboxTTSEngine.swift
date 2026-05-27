@@ -22,6 +22,8 @@ actor ChatterboxTTSEngine: TTSEngine {
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var varispeedNode: AVAudioUnitVarispeed?
+    private var audioPlayer: AVAudioPlayer?
+    private var audioPlayerDelegate: AudioPlayerDelegate?
 
     /// Sample rate produced by ChatterboxPipeline's vocoder.
     private static let sampleRate: Double = 24_000
@@ -54,6 +56,9 @@ actor ChatterboxTTSEngine: TTSEngine {
     }
 
     private func _stop() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        audioPlayerDelegate = nil
         playerNode?.stop()
         engine?.stop()
     }
@@ -61,84 +66,89 @@ actor ChatterboxTTSEngine: TTSEngine {
     // MARK: - Playback
 
     private func play(samples: [Float], sampleRate: Double, speed: Speed) async throws {
-        // Source format: what Chatterbox produces (24 kHz mono float32 non-interleaved)
-        guard let sourceFormat = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: sampleRate,
-            channels: 1,
-            interleaved: false
-        ) else {
-            throw TTSError.playbackFailed("Could not construct source AVAudioFormat at \(sampleRate)Hz mono")
+        NSLog("Bolo play(): \(samples.count) samples at \(sampleRate) Hz, speed=\(speed.value)x")
+        guard !samples.isEmpty else {
+            throw TTSError.playbackFailed("Chatterbox returned 0 audio samples")
         }
 
-        // Wrap the raw samples into a source-format buffer
-        guard let sourceBuffer = AVAudioPCMBuffer(
-            pcmFormat: sourceFormat,
-            frameCapacity: AVAudioFrameCount(samples.count)
-        ) else {
-            throw TTSError.playbackFailed("Could not allocate source PCM buffer for \(samples.count) frames")
-        }
-        sourceBuffer.frameLength = AVAudioFrameCount(samples.count)
-        if let dst = sourceBuffer.floatChannelData?[0] {
-            samples.withUnsafeBufferPointer { src in
-                dst.update(from: src.baseAddress!, count: samples.count)
-            }
+        // Build an in-memory WAV file. AVAudioPlayer handles SR/channel conversion
+        // internally — much more reliable than the AVAudioEngine render-graph dance
+        // that gave us 2× pitch + truncation + silent renders. This approach: build
+        // a WAV blob, hand it to AVAudioPlayer, set rate for speed, play, await done.
+        let wavData = makeWavFile(monoFloats: samples, sampleRate: Int(sampleRate))
+        NSLog("Bolo play(): WAV blob is \(wavData.count) bytes")
+
+        let player: AVAudioPlayer
+        do {
+            player = try AVAudioPlayer(data: wavData)
+        } catch {
+            throw TTSError.playbackFailed("AVAudioPlayer init failed: \(error)")
         }
 
-        // Set up the graph. We deliberately run the ENTIRE graph at the system output
-        // format (typically 48 kHz stereo) — sample-rate and channel conversion happens
-        // ONCE here via AVAudioConverter, before any node sees the buffer. Relying on
-        // mainMixerNode for implicit resampling causes 2× pitch + truncation in practice;
-        // pre-conversion via AVAudioConverter is the reliable path.
-        let (engine, player, varispeed) = setupGraph(forSourceFormat: sourceFormat)
-        varispeed.rate = Float(speed.value)
+        // AVAudioPlayer.rate is in [0.5, 2.0] when enableRate is true — matches our Speed clamping.
+        player.enableRate = true
+        player.rate = Float(speed.value)
+        player.volume = 1.0
+        player.prepareToPlay()
 
-        if !engine.isRunning {
-            do {
-                try engine.start()
-            } catch {
-                throw TTSError.playbackFailed("AVAudioEngine.start failed: \(error)")
-            }
-        }
-
-        // Convert source buffer → output format (e.g. 48 kHz stereo)
-        let outputFormat = engine.mainMixerNode.outputFormat(forBus: 0)
-        guard let converter = AVAudioConverter(from: sourceFormat, to: outputFormat) else {
-            throw TTSError.playbackFailed("Could not create AVAudioConverter \(sourceFormat) → \(outputFormat)")
-        }
-        let ratio = outputFormat.sampleRate / sourceFormat.sampleRate
-        let outputCapacity = AVAudioFrameCount(Double(sourceBuffer.frameLength) * ratio + 1024)
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: outputFormat,
-            frameCapacity: outputCapacity
-        ) else {
-            throw TTSError.playbackFailed("Could not allocate output PCM buffer")
-        }
-        var convertError: NSError?
-        var consumed = false
-        converter.convert(to: outputBuffer, error: &convertError) { _, statusPtr in
-            if consumed {
-                statusPtr.pointee = .endOfStream
-                return nil
-            }
-            consumed = true
-            statusPtr.pointee = .haveData
-            return sourceBuffer
-        }
-        if let err = convertError {
-            throw TTSError.playbackFailed("AVAudioConverter failed: \(err)")
-        }
-
-        player.play()
+        // Keep a strong reference so player + delegate aren't GC'd mid-playback.
+        self.audioPlayer = player
 
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            player.scheduleBuffer(outputBuffer, completionCallbackType: .dataPlayedBack) { _ in
+            let delegate = AudioPlayerDelegate(onFinish: {
+                NSLog("Bolo play(): playback finished")
+                cont.resume()
+            })
+            self.audioPlayerDelegate = delegate
+            player.delegate = delegate
+
+            let started = player.play()
+            NSLog("Bolo play(): AVAudioPlayer.play() returned \(started)")
+            if !started {
+                NSLog("Bolo play(): play() returned false; resuming continuation early")
                 cont.resume()
             }
         }
     }
 
-    private func setupGraph(
+    /// Build a WAV file in memory from mono float samples.
+    /// Format: WAVE, 32-bit float PCM, mono.
+    private func makeWavFile(monoFloats samples: [Float], sampleRate: Int) -> Data {
+        let bitsPerSample: UInt16 = 32
+        let channels: UInt16 = 1
+        let byteRate = UInt32(sampleRate) * UInt32(channels) * UInt32(bitsPerSample / 8)
+        let blockAlign: UInt16 = channels * (bitsPerSample / 8)
+        let audioBytes = samples.count * MemoryLayout<Float>.size
+        let dataChunkSize = UInt32(audioBytes)
+        let fmtChunkSize: UInt32 = 16
+        let riffChunkSize = 4 + (8 + fmtChunkSize) + (8 + dataChunkSize)
+
+        var data = Data()
+        // RIFF header
+        data.append(contentsOf: "RIFF".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: riffChunkSize.littleEndian) { Array($0) })
+        data.append(contentsOf: "WAVE".utf8)
+        // fmt chunk
+        data.append(contentsOf: "fmt ".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: fmtChunkSize.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt16(3).littleEndian) { Array($0) })  // format = 3 (IEEE float)
+        data.append(contentsOf: withUnsafeBytes(of: channels.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: UInt32(sampleRate).littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian) { Array($0) })
+        // data chunk
+        data.append(contentsOf: "data".utf8)
+        data.append(contentsOf: withUnsafeBytes(of: dataChunkSize.littleEndian) { Array($0) })
+        samples.withUnsafeBufferPointer { ptr in
+            data.append(UnsafeBufferPointer(start: ptr.baseAddress, count: samples.count))
+        }
+        return data
+    }
+
+    // Legacy graph setup — kept for reference but no longer used. Audio path is now
+    // AVAudioPlayer-based for reliability.
+    private func setupGraph_legacy(
         forSourceFormat sourceFormat: AVAudioFormat
     ) -> (AVAudioEngine, AVAudioPlayerNode, AVAudioUnitVarispeed) {
         if let engine, let player = playerNode, let varispeed = varispeedNode {
@@ -149,11 +159,6 @@ actor ChatterboxTTSEngine: TTSEngine {
         let varispeed = AVAudioUnitVarispeed()
         engine.attach(player)
         engine.attach(varispeed)
-        // Connect the whole graph at the engine's output format (which itself was
-        // negotiated to match the system output device — typically 48 kHz stereo).
-        // We pre-convert source 24 kHz mono → output format via AVAudioConverter
-        // before scheduling, so every node sees the same format. No implicit
-        // resampling anywhere.
         let outputFormat = engine.mainMixerNode.outputFormat(forBus: 0)
         engine.connect(player, to: varispeed, format: outputFormat)
         engine.connect(varispeed, to: engine.mainMixerNode, format: outputFormat)
@@ -161,5 +166,21 @@ actor ChatterboxTTSEngine: TTSEngine {
         self.playerNode = player
         self.varispeedNode = varispeed
         return (engine, player, varispeed)
+    }
+}
+
+/// Bridges AVAudioPlayer's delegate callback to a closure so the actor can await
+/// playback completion via withCheckedContinuation.
+final class AudioPlayerDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    let onFinish: @Sendable () -> Void
+    init(onFinish: @escaping @Sendable () -> Void) {
+        self.onFinish = onFinish
+    }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinish()
+    }
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        NSLog("Bolo AudioPlayerDelegate decode error: \(error?.localizedDescription ?? "nil")")
+        onFinish()
     }
 }

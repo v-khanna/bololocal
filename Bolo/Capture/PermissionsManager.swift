@@ -4,7 +4,9 @@ import AppKit
 enum PermissionsManager {
     /// Current AX trust state — does NOT prompt.
     static var isAccessibilityGranted: Bool {
-        AXIsProcessTrusted()
+        let result = AXIsProcessTrusted()
+        NSLog("Bolo AX check: result=\(result) bundle=\(Bundle.main.bundlePath)")
+        return result
     }
 
     /// Show the system AX prompt (one-shot — only shows once per app install).

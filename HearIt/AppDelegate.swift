@@ -5,7 +5,7 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
-    let popoverController = PopoverController()
+    var popoverController: PopoverController!
     let hotkeyManager = HotkeyManager()
     var coordinator: Coordinator?
     var modelManager: ModelManager<Qwen3TTSModel>?
@@ -34,6 +34,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.start()
         self.coordinator = coordinator
         self.modelManager = manager
+
+        // Popover (depends on coordinator.state)
+        self.popoverController = PopoverController(
+            settings: Settings.shared,
+            coordinatorState: coordinator.state,
+            onOpenSettings: { [weak self] in self?.openSettings() }
+        )
     }
 
     @objc private func togglePopover() {
@@ -43,5 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popoverController.show(relativeTo: button)
         }
+    }
+
+    // Settings sheet — real implementation in Task 12.
+    @objc func openSettings() {
+        NSLog("HearIt: openSettings — implemented in Task 12")
     }
 }

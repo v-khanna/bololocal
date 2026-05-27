@@ -1,16 +1,18 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 final class PopoverController {
     let popover: NSPopover
 
-    init() {
+    init(settings: Settings, coordinatorState: CoordinatorState, onOpenSettings: @escaping () -> Void) {
         let p = NSPopover()
-        p.contentSize = NSSize(width: 320, height: 280)
+        p.contentSize = NSSize(width: 320, height: 320)
         p.behavior = .transient
         p.animates = true
-        // Placeholder content; replaced by PopoverView in Task 11.
-        let host = NSHostingController(rootView: PopoverPlaceholderView())
+        let host = NSHostingController(rootView:
+            PopoverView(settings: settings, coordinator: coordinatorState, onOpenSettings: onOpenSettings)
+        )
         p.contentViewController = host
         self.popover = p
     }
@@ -19,21 +21,7 @@ final class PopoverController {
         popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
     }
 
-    func hide() {
-        popover.performClose(nil)
-    }
-}
-
-private struct PopoverPlaceholderView: View {
-    var body: some View {
-        ZStack {
-            VisualEffectBackground()
-            Text("HearIt")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-        }
-        .frame(width: 320, height: 280)
-    }
+    func hide() { popover.performClose(nil) }
 }
 
 /// NSVisualEffectView wrapped for SwiftUI. Native-stealth foundation.

@@ -4,14 +4,21 @@ import AppKit
 
 @MainActor
 final class PopoverControllerTests: XCTestCase {
+    /// Minimal helper to construct a PopoverController with dummy dependencies.
+    private func makeController() -> PopoverController {
+        let settings = Settings(defaults: UserDefaults(suiteName: "PopoverControllerTests-\(UUID())")!)
+        let state = CoordinatorState()
+        return PopoverController(settings: settings, coordinatorState: state, onOpenSettings: {})
+    }
+
     func test_init_createsPopoverWithCorrectSize() {
-        let controller = PopoverController()
-        XCTAssertEqual(controller.popover.contentSize, NSSize(width: 320, height: 280))
+        let controller = makeController()
+        XCTAssertEqual(controller.popover.contentSize, NSSize(width: 320, height: 320))
         XCTAssertEqual(controller.popover.behavior, .transient)
     }
 
     func test_show_attachesPopoverToView() {
-        let controller = PopoverController()
+        let controller = makeController()
         // NSPopover requires a view with a window; use an offscreen panel.
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 100, height: 50),

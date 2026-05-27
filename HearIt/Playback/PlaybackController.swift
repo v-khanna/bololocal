@@ -2,23 +2,24 @@ import Foundation
 
 @MainActor
 final class PlaybackController {
-    private let engine: TTSEngine
+    private let engine: any TTSEngine
     private var currentTask: Task<Void, Never>?
 
     var isPlaying: Bool { currentTask != nil }
 
-    init(engine: TTSEngine) {
+    init(engine: any TTSEngine) {
         self.engine = engine
     }
 
-    func play(text: String, voice: VoiceID, speed: Speed) {
+    func play(text: String, voice: VoiceID, speed: Speed, onComplete: (@Sendable () -> Void)? = nil) {
         stop()
-        currentTask = Task { [engine] in
+        currentTask = Task { [engine, onComplete] in
             do {
                 try await engine.synthesize(text: text, voice: voice, speed: speed)
             } catch {
                 NSLog("HearIt playback error: \(error)")
             }
+            onComplete?()
             await MainActor.run { [weak self] in
                 self?.currentTask = nil
             }

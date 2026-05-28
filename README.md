@@ -85,6 +85,14 @@ If you want the fast everyday experience, use **[Bolo](https://github.com/v-khan
 If you want it fully private/offline — or you want to see the engine — you're in
 the right place.
 
+## Roadmap
+
+- **On-device dictation — coming soon.** Speech-to-text running fully locally too
+  (via [WhisperKit](https://github.com/argmaxinc/WhisperKit) + a local LLM), so
+  the *talk* half can be offline, not just *listen*. Note: dictation is a
+  separate model from the TTS engine above — none of the Chatterbox code
+  transfers; it reuses the same on-device / out-of-process pattern, not the model.
+
 ## Docs
 
 | Doc | What's in it |

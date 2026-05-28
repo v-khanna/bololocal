@@ -59,7 +59,8 @@ targets:
         product: MLXRandom
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.virkhanna.bolo
+        PRODUCT_BUNDLE_IDENTIFIER: com.virkhanna.bololocal
+        PRODUCT_NAME: BoloLocal
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO
   BoloTests:
@@ -75,5 +76,5 @@ targets:
       base:
         ARCHS: arm64
         BUNDLE_LOADER: $(TEST_HOST)
-        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Bolo.app/Contents/MacOS/Bolo
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/BoloLocal.app/Contents/MacOS/BoloLocal
         GENERATE_INFOPLIST_FILE: YES

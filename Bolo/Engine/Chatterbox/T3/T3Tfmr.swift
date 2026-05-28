@@ -68,8 +68,10 @@ final class T3Tfmr: Module {
         let posEmb = wpe(positions)  // (L, H)
         var hidden = inputsEmbeds + posEmb  // broadcasts (B, L, H) + (L, H)
 
-        // Causal mask only for prefill (no cache, multi-token forward).
-        let mask: MLXArray? = (caches == nil && L > 1) ? T3Attention.causalMask(seqLen: L) : nil
+        // Causal mask is needed for any multi-token forward pass (prefill, with
+        // or without cache). For a single-token incremental step (L == 1) with
+        // a cache, causality is implicit — every cached key is in the past.
+        let mask: MLXArray? = (L > 1) ? T3Attention.causalMask(seqLen: L) : nil
 
         for (i, block) in h.enumerated() {
             let c: Any? = caches?[i]

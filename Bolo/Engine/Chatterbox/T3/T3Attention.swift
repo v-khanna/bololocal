@@ -56,7 +56,10 @@ final class T3Attention: Module {
     ///   - x: Input tensor of shape `(B, S, H)`.
     ///   - mask: Optional additive attention mask. Use `causalMask(seqLen:)` for
     ///     autoregressive generation. Shape should broadcast to `(B, h, S, S)`.
-    ///   - cache: Reserved for KV cache (Task 11). Pass `nil` for now.
+    ///   - cache: Optional KV cache (typed as `Any?` for forward-compat with the
+    ///     pre-cache call sites; downcast to `T3Cache` inside). When provided,
+    ///     the new K/V are appended to it and the full cached K/V are used as
+    ///     the attention keys/values.
     /// - Returns: Output tensor of shape `(B, S, H)`.
     func callAsFunction(_ x: MLXArray, mask: MLXArray?, cache: Any? = nil) -> MLXArray {
         let B = x.shape[0]
@@ -74,15 +77,22 @@ final class T3Attention: Module {
         // Reshape to (B, S, numHeads, headDim) then transpose to (B, numHeads, S, headDim)
         // This is the per-head layout expected by scaledDotProductAttention.
         let q = unflatten(qRaw, axis: -1, shape: [numHeads, headDim]).transposed(0, 2, 1, 3)
-        let k = unflatten(kRaw, axis: -1, shape: [numHeads, headDim]).transposed(0, 2, 1, 3)
-        let v = unflatten(vRaw, axis: -1, shape: [numHeads, headDim]).transposed(0, 2, 1, 3)
+        var k = unflatten(kRaw, axis: -1, shape: [numHeads, headDim]).transposed(0, 2, 1, 3)
+        var v = unflatten(vRaw, axis: -1, shape: [numHeads, headDim]).transposed(0, 2, 1, 3)
+
+        // If a KV cache is provided, append the new K/V and use the full history
+        // for attention. The query stays single-step (or whatever length the
+        // caller passed in); only K/V grow.
+        if let t3Cache = cache as? T3Cache {
+            (k, v) = t3Cache.update(keys: k, values: v)
+        }
 
         // Scale: 1 / sqrt(headDim)
         let scale = 1.0 / sqrt(Float(headDim))
 
         // Scaled dot-product attention via MLXFast kernel.
-        // Input shapes: (B, numHeads, S, headDim) for Q/K/V.
-        // Output shape: (B, numHeads, S, headDim) — already transposed back by the kernel.
+        // Input shapes: q: (B, h, S_q, d), k/v: (B, h, S_k, d).
+        // Output shape: (B, h, S_q, d).
         let maskMode: MLXFast.ScaledDotProductAttentionMaskMode = mask.map { .array($0) } ?? .none
         let attended = MLXFast.scaledDotProductAttention(
             queries: q, keys: k, values: v, scale: scale, mask: maskMode)

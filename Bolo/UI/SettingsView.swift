@@ -1,86 +1,60 @@
 import SwiftUI
-import KeyboardShortcuts
 
+/// Cotypist-style settings: colorful tile sidebar on the left, grouped white cards on
+/// the right. Entry point unchanged — `SettingsView(settings: Settings.shared)`.
 struct SettingsView: View {
     @ObservedObject var settings: Settings
+    @State private var selection: SettingsSection = .general
 
     var body: some View {
-        TabView {
-            generalTab.tabItem { Label("General", systemImage: "gearshape") }
-            aboutTab.tabItem { Label("About", systemImage: "info.circle") }
+        HStack(spacing: 0) {
+            SettingsSidebar(selection: $selection)
+            Divider()
+                .overlay(Color(nsColor: .separatorColor).opacity(0.6))
+            pane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 460, height: 320)
-        .padding()
+        .frame(width: 720, height: 480)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    // MARK: - General
-    private var generalTab: some View {
-        Form {
-            Toggle("Launch Bolo at login", isOn: $settings.launchAtLogin)
-                .onChange(of: settings.launchAtLogin) { _, new in
-                    LaunchAtLogin.set(enabled: new)
-                }
-
-            Picker("Language", selection: $settings.selectedLanguage) {
-                Text("English").tag("english")
-                // More languages added in v1.1+ as we verify voice quality per language.
-            }
-
-            HStack {
-                Text("Hotkey")
-                Spacer()
-                KeyboardShortcuts.Recorder(for: .readSelection)
-                    .frame(width: 180)
-            }
-
-            Spacer()
-            accessibilitySection
+    @ViewBuilder
+    private var pane: some View {
+        switch selection {
+        case .general:
+            GeneralPane(settings: settings)
+        case .voices:
+            VoicesPane(settings: settings)
+        case .about:
+            AboutPane()
+        case .setup:
+            ComingSoonPane(
+                symbol: "lock.fill",
+                tileColor: SettingsSection.setup.tileColor,
+                title: "Setup & Recovery",
+                blurb: "Re-check permissions, verify the voice model, and reset Bolo if something goes wrong. This panel is on the way."
+            )
+        case .shortcuts:
+            ComingSoonPane(
+                symbol: "command",
+                tileColor: SettingsSection.shortcuts.tileColor,
+                title: "Shortcuts",
+                blurb: "Customize playback hotkeys — skip sentence, pause/resume, and stop. For now, set the read-selection hotkey in General."
+            )
+        case .appSettings:
+            ComingSoonPane(
+                symbol: "slider.horizontal.3",
+                tileColor: SettingsSection.appSettings.tileColor,
+                title: "App Settings",
+                blurb: "Per-app overrides for voice and speed. Use a slower voice in PDFs, a different one in Mail — defaults apply everywhere else."
+            )
+        case .pronunciation:
+            ComingSoonPane(
+                symbol: "character.book.closed.fill",
+                tileColor: SettingsSection.pronunciation.tileColor,
+                title: "Pronunciation",
+                blurb: "Teach Bolo how to say names, acronyms, and technical terms. Overrides will apply across all voices."
+            )
         }
     }
-
-    private var accessibilitySection: some View {
-        GroupBox {
-            HStack {
-                Image(systemName: PermissionsManager.isAccessibilityGranted ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                    .foregroundStyle(PermissionsManager.isAccessibilityGranted ? .green : .orange)
-                Text(PermissionsManager.isAccessibilityGranted
-                     ? "Accessibility access granted"
-                     : "Accessibility access required")
-                Spacer()
-                if !PermissionsManager.isAccessibilityGranted {
-                    Button("Open System Settings") {
-                        PermissionsManager.openAccessibilitySettings()
-                    }
-                }
-            }
-            .padding(8)
-        }
-    }
-
-    // MARK: - About
-    private var aboutTab: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "waveform")
-                .font(.system(size: 48))
-                .foregroundStyle(.secondary)
-            Text("Bolo").font(.title2)
-            Text("Version \(Bundle.main.shortVersionString) (\(Bundle.main.buildNumber))")
-                .foregroundStyle(.secondary)
-            Text("Reads selected text aloud, fully on-device.")
-                .font(.caption)
-            Spacer()
-            Text("All speech runs locally on your Mac. No network calls after the one-time model download.")
-                .multilineTextAlignment(.center)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 24)
-            Spacer()
-        }
-        .padding()
-    }
-}
-
-private extension Bundle {
-    var shortVersionString: String { infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0" }
-    var buildNumber: String { infoDictionary?["CFBundleVersion"] as? String ?? "0" }
 }

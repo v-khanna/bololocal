@@ -25,3 +25,8 @@ notarization.log
 # Chatterbox reference environment (developer-only, not bundled)
 scripts/chatterbox-reference/venv/
 scripts/chatterbox-reference/reference-outputs/
+
+# Xcode build-settings output + caches (never commit)
+build-settings/
+*.noindex/
+*.profraw

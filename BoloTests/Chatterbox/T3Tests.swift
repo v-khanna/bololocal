@@ -268,6 +268,116 @@ final class T3Tests: XCTestCase {
         return (diff * diff).mean().item(Float.self)
     }
 
+    // MARK: - KV cache parity (no model weights)
+    //
+    // Drives a tiny T3 with random initial weights through both the cached
+    // incremental loop and the no-cache full-resequence loop, then asserts the
+    // resulting token sequences match exactly. This is integer comparison,
+    // so it should be bit-exact, not approximate.
+    //
+    // Also measures wall time as a sanity signal — cached should be faster,
+    // though with random weights and N=20 the difference is modest.
+    func test_cache_vs_noCache_producesIdenticalTokens() {
+        // Pin RNG so module-init weights are deterministic across the two paths.
+        // T3 module init uses MLXRandom for parameter init via MLXNN, so seeding
+        // first makes the random "weights" reproducible inside one test run.
+        MLXRandom.seed(0xB0_10_DE_AD)
+
+        let cfg = ChatterboxConfig.turbo.t3
+        let t3 = T3(config: cfg)
+
+        // Build a tiny pipeline shell with the random-weight T3. The S3Gen
+        // half is unused here — wrap a no-op stub by reaching into the
+        // private generateSpeechTokens via internal access.
+        //
+        // We replicate the generation loops inline rather than constructing
+        // a ChatterboxPipeline (which needs S3Gen, tokenizer, etc.) so the
+        // test stays light.
+        let textTokens = MLXArray([42, 17, 8, 99, 3, 11, 200, 88] as [Int32]).reshaped([1, 8])
+        let speakerEmb = MLXRandom.normal([1, 256])
+        // No cond-prompt-speech-tokens for this synthetic test.
+        let startTok: Int32 = 6561
+        let stopTok: Int32 = 6562
+        let N = 20
+
+        // --- Path A: no cache, O(N²) ---
+        let tStart1 = Date()
+        var tokensNoCache: [Int32] = []
+        do {
+            var speechTokens = MLXArray([startTok]).reshaped([1, 1]).asType(.int32)
+            for _ in 0..<N {
+                let logits = t3(
+                    textTokens: textTokens,
+                    speechTokens: speechTokens,
+                    speakerEmbedding: speakerEmb,
+                    condPromptSpeechTokens: nil,
+                    caches: nil
+                )
+                let last = logits[0..., (logits.shape[1] - 1)..<logits.shape[1], 0...]
+                    .reshaped([1, 6563])
+                let nextID = last.argMax(axis: -1).item(Int32.self)
+                if nextID == stopTok { break }
+                tokensNoCache.append(nextID)
+                let newTok = MLXArray([nextID]).reshaped([1, 1]).asType(.int32)
+                speechTokens = concatenated([speechTokens, newTok], axis: 1)
+            }
+        }
+        let noCacheElapsed = Date().timeIntervalSince(tStart1)
+
+        // --- Path B: with KV cache, O(N) ---
+        let tStart2 = Date()
+        var tokensCached: [Int32] = []
+        do {
+            let caches: [T3Cache] = (0..<cfg.numLayers).map { _ in
+                T3Cache(numHeads: cfg.numHeads, headDim: cfg.headDim)
+            }
+            // Prefill.
+            let speechStart = MLXArray([startTok]).reshaped([1, 1]).asType(.int32)
+            let (prefillEmbeds, _) = t3.prepareInputEmbeds(
+                textTokens: textTokens,
+                speechTokens: speechStart,
+                speakerEmbedding: speakerEmb,
+                condPromptSpeechTokens: nil
+            )
+            let prefillLogits = t3.forwardEmbeds(
+                inputsEmbeds: prefillEmbeds, cacheOffset: 0, caches: caches)
+            var L = prefillEmbeds.shape[1]
+            var last = prefillLogits[0..., (prefillLogits.shape[1] - 1)..<prefillLogits.shape[1], 0...]
+                .reshaped([1, 6563])
+            var nextID = last.argMax(axis: -1).item(Int32.self)
+            if nextID != stopTok {
+                tokensCached.append(nextID)
+                for _ in 1..<N {
+                    let newTok = MLXArray([nextID]).reshaped([1, 1]).asType(.int32)
+                    let stepEmbed = t3.speechEmb(newTok)
+                    let stepLogits = t3.forwardEmbeds(
+                        inputsEmbeds: stepEmbed, cacheOffset: L, caches: caches)
+                    L += 1
+                    last = stepLogits[0..., (stepLogits.shape[1] - 1)..<stepLogits.shape[1], 0...]
+                        .reshaped([1, 6563])
+                    nextID = last.argMax(axis: -1).item(Int32.self)
+                    if nextID == stopTok { break }
+                    tokensCached.append(nextID)
+                }
+            }
+        }
+        let cachedElapsed = Date().timeIntervalSince(tStart2)
+
+        print("[kv-cache parity] no-cache=\(noCacheElapsed)s cached=\(cachedElapsed)s " +
+              "speedup=\(noCacheElapsed / max(cachedElapsed, 1e-9))x " +
+              "tokens_no_cache=\(tokensNoCache.count) tokens_cached=\(tokensCached.count)")
+        print("[kv-cache parity] no-cache tokens: \(tokensNoCache)")
+        print("[kv-cache parity] cached   tokens: \(tokensCached)")
+
+        XCTAssertEqual(tokensCached, tokensNoCache,
+            "Cached generation must produce bit-identical token sequence to no-cache reference.")
+        XCTAssertFalse(tokensCached.isEmpty, "Test should produce at least one token.")
+        // Soft speedup check — should be meaningfully faster, but don't gate the
+        // run on a strict ratio (CI noise, cold MLX kernels, etc.).
+        XCTAssertLessThan(cachedElapsed, noCacheElapsed,
+            "Cached path (\(cachedElapsed)s) should beat no-cache path (\(noCacheElapsed)s).")
+    }
+
     func test_cache_appendingTokens_growsCorrectly() {
         let cfg = ChatterboxConfig.turbo.t3
         let cache = T3Cache(numHeads: cfg.numHeads, headDim: cfg.headDim)

@@ -12,12 +12,15 @@ final class PlaybackController {
     }
 
     func play(text: String, voice: VoiceID, speed: Speed, onComplete: (@Sendable () -> Void)? = nil) {
+        BoloDebug.log("PlaybackController.play() called")
         stop()
         currentTask = Task { [engine, onComplete] in
+            BoloDebug.log("PlaybackController task started; calling engine.synthesize")
             do {
                 try await engine.synthesize(text: text, voice: voice, speed: speed)
+                BoloDebug.log("engine.synthesize returned normally")
             } catch {
-                NSLog("Bolo playback error: \(error)")
+                BoloDebug.log("engine.synthesize threw: \(error)")
             }
             onComplete?()
             await MainActor.run { [weak self] in

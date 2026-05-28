@@ -53,7 +53,9 @@ final class ChatterboxPipelineTests: XCTestCase {
         let sineGenNoise = mlxFromFloat(sineGenNoiseRef)
 
         // 3. Load the full pipeline (downloads weights if needed).
-        let pipeline = try await ChatterboxPipeline.load()
+        //    Force fp16 — the parity test bit-compares against the Python reference,
+        //    so any quantization noise would break it. Production defaults to 4-bit.
+        let pipeline = try await ChatterboxPipeline.load(quantizeBits: nil)
 
         // 4. Run S3Gen with pinned everything.
         let (audioSwift, speechFeatSwift) = pipeline.synthesizeFromSpeechTokens(

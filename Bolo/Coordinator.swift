@@ -11,6 +11,15 @@ final class Coordinator {
         self.playback = playback
         state.togglePlayPause = { [weak self] in self?.togglePlayPause() }
         state.stop = { [weak self] in self?.stopPlayback() }
+        state.speakTest = { [weak self] in self?.speakTest() }
+    }
+
+    /// DEV: speak a hardcoded sentence. Bypasses hotkey + AX + clipboard.
+    private func speakTest() {
+        BoloDebug.log("speakTest invoked")
+        let text = "Hello, this is a test of Bolo's audio pipeline. If you hear this, the engine works."
+        state.lastCapturedText = text
+        startPlayback(text: text)
     }
 
     func start() {
@@ -43,8 +52,10 @@ final class Coordinator {
     private func startPlayback(text: String) {
         let s = Settings.shared
         let voice = VoiceID(rawValue: s.selectedLanguage)
+        BoloDebug.log("startPlayback: text=\(text.prefix(40))… voice=\(s.selectedLanguage) speed=\(s.speed.value)")
         state.isPlaying = true
         playback.play(text: text, voice: voice, speed: s.speed) { [weak self] in
+            BoloDebug.log("playback callback fired (done or error)")
             Task { @MainActor in self?.state.isPlaying = false }
         }
     }

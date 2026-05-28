@@ -66,6 +66,13 @@ struct PopoverView: View {
             .disabled(!coordinator.isPlaying)
 
             Spacer()
+
+            // DEV: benchmark trigger. Drives speakTest() so we can measure end-to-end
+            // generation time without needing AX/clipboard/selected text. Remove before ship.
+            Button("Test") {
+                coordinator.speakTest()
+            }
+            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -93,4 +100,5 @@ final class CoordinatorState: ObservableObject {
     @Published var isPlaying: Bool = false
     var togglePlayPause: () -> Void = {}
     var stop: () -> Void = {}
+    var speakTest: () -> Void = {}
 }

@@ -61,6 +61,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.virkhanna.bololocal
         PRODUCT_NAME: BoloLocal
+        # Keep the Swift module name "Bolo" so `@testable import Bolo` in the
+        # test target keeps resolving after the app was renamed to BoloLocal.
+        PRODUCT_MODULE_NAME: Bolo
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO
   BoloTests:

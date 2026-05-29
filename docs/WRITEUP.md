@@ -80,15 +80,28 @@ The port wasn't "translate the Python line by line." The interesting failures:
 
 ## Results
 
-`[BENCHMARK: synth latency for a ~1-sentence and a ~paragraph input, on a stated
-machine, e.g. M-series / 16GB]`
-`[BENCHMARK: peak RAM during synthesis]`
-`[BENCHMARK: model on-disk size / download size]`
-`[AUDIO: 2–3 sample clips — a neutral sentence, an expressive one]`
+Measured on an **Apple M5, 16 GB** (one synthesis run, 4-bit weights, model
+already on disk). Reproduce with the `test_BENCHMARK_synthLatencyAndMemory`
+benchmark in `BoloTests/Chatterbox/`.
 
-Honest take: on-device is slower and heavier than cloud, and the cloud path won
-for the shipped default. But the engine works, matches the reference, and runs
-without a Python runtime — which was the point.
+| Metric | Value |
+|---|---|
+| Input | 80-character sentence |
+| Audio produced | 4.56 s @ 24 kHz |
+| Model load | 2.6 s |
+| Synthesis | 10.3 s |
+| **Real-time factor** | **~2.3×** (≈2.3 s of compute per 1 s of audio) |
+| **Peak process memory** | **~9.1 GB** (phys_footprint, incl. test-runner overhead) |
+| Model on disk | 2.8 GB (fp16); 4-bit at runtime |
+
+`[AUDIO: add 2–3 sample clips — a neutral sentence, an expressive one]`
+
+**Honest take:** on-device is **slower than real-time and memory-heavy** — which
+is precisely why the shipped product ([Bolo](https://github.com/v-khanna/bolo))
+defaults to cloud TTS and offers this engine as an opt-in. That tradeoff is the
+point: I built the on-device path, *measured* it, and chose the default from the
+data rather than guessing. The engine works, matches the reference within the
+parity gates, and runs with no Python runtime — on a consumer 16 GB Mac.
 
 ## How it's structured (so it's reusable)
 

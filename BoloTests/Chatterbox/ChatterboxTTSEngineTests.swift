@@ -59,4 +59,73 @@ final class ChatterboxTTSEngineTests: XCTestCase {
         let maxAmplitude = samples.map { abs($0) }.max() ?? 0
         XCTAssertGreaterThan(maxAmplitude, 0.001, "All samples are near-zero — pipeline may have failed silently")
     }
+
+    // MARK: - Benchmark (real measurements for the writeup)
+    //
+    // Times model load + synthesis and samples peak process memory
+    // (phys_footprint, the metric Activity Monitor shows). Prints BENCH lines.
+    // Run explicitly:
+    //   xcodebuild test -scheme Bolo -destination 'platform=macOS,arch=arm64' \
+    //     -only-testing:BoloTests/ChatterboxTTSEngineTests/test_BENCHMARK_synthLatencyAndMemory
+
+    func test_BENCHMARK_synthLatencyAndMemory() async throws {
+        guard WeightLoader.isAlreadyDownloaded() else {
+            throw XCTSkip("Chatterbox model weights not found — skipping benchmark")
+        }
+
+        let peak = PeakMemTracker()
+        peak.update(currentPhysFootprintMB())
+        let poller = Task.detached {
+            while !Task.isCancelled {
+                peak.update(currentPhysFootprintMB())
+                try? await Task.sleep(nanoseconds: 100_000_000) // 100 ms
+            }
+        }
+
+        let loadStart = Date()
+        let pipeline = try await ChatterboxPipeline.load()
+        let loadSeconds = Date().timeIntervalSince(loadStart)
+        peak.update(currentPhysFootprintMB())
+
+        let sentence = "The quick brown fox jumps over the lazy dog, and then it ran off into the night."
+        let synthStart = Date()
+        let samples = try await pipeline.generate(text: sentence)
+        let synthSeconds = Date().timeIntervalSince(synthStart)
+        peak.update(currentPhysFootprintMB())
+
+        poller.cancel()
+
+        let audioSeconds = Double(samples.count) / 24_000.0
+        let rtf = audioSeconds > 0 ? synthSeconds / audioSeconds : -1
+
+        let line = String(
+            format: "BENCH chars=%d model_load_s=%.2f synth_s=%.2f audio_s=%.2f realtime_factor=%.2f peak_mem_mb=%.0f samples=%d",
+            sentence.count, loadSeconds, synthSeconds, audioSeconds, rtf, peak.value, samples.count
+        )
+        print(line)
+        NSLog("%@", line)
+
+        XCTAssertFalse(samples.isEmpty)
+    }
+}
+
+/// Thread-safe max-tracker for the memory poller.
+final class PeakMemTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value: Double = 0
+    func update(_ x: Double) { lock.lock(); _value = max(_value, x); lock.unlock() }
+    var value: Double { lock.lock(); defer { lock.unlock() }; return _value }
+}
+
+/// Current process memory footprint in MB (phys_footprint — matches Activity Monitor).
+func currentPhysFootprintMB() -> Double {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+    let kr = withUnsafeMutablePointer(to: &info) { ptr -> kern_return_t in
+        ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    guard kr == KERN_SUCCESS else { return -1 }
+    return Double(info.phys_footprint) / 1_048_576.0
 }
